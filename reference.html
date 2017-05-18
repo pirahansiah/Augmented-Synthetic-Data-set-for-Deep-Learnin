@@ -1,0 +1,2273 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title>JabRef references</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<script type="text/javascript">
+<!--
+// QuickSearch script for JabRef HTML export 
+// Version: 3.0
+//
+// Copyright (c) 2006-2011, Mark Schenk
+//
+// This software is distributed under a Creative Commons Attribution 3.0 License
+// http://creativecommons.org/licenses/by/3.0/
+//
+// Features:
+// - intuitive find-as-you-type searching
+//    ~ case insensitive
+//    ~ ignore diacritics (optional)
+//
+// - search with/without Regular Expressions
+// - match BibTeX key
+//
+
+// Search settings
+var searchAbstract = true;	// search in abstract
+var searchReview = true;	// search in review
+
+var noSquiggles = true; 	// ignore diacritics when searching
+var searchRegExp = false; 	// enable RegExp searches
+
+
+if (window.addEventListener) {
+	window.addEventListener("load",initSearch,false); }
+else if (window.attachEvent) {
+	window.attachEvent("onload", initSearch); }
+
+function initSearch() {
+	// check for quick search table and searchfield
+	if (!document.getElementById('qs_table')||!document.getElementById('quicksearch')) { return; }
+
+	// load all the rows and sort into arrays
+	loadTableData();
+	
+	//find the query field
+	qsfield = document.getElementById('qs_field');
+
+	// previous search term; used for speed optimisation
+	prevSearch = '';
+
+	//find statistics location
+	stats = document.getElementById('stat');
+	setStatistics(-1);
+	
+	// set up preferences
+	initPreferences();
+
+	// shows the searchfield
+	document.getElementById('quicksearch').style.display = 'block';
+	document.getElementById('qs_field').onkeyup = quickSearch;
+}
+
+function loadTableData() {
+	// find table and appropriate rows
+	searchTable = document.getElementById('qs_table');
+	var allRows = searchTable.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+
+	// split all rows into entryRows and infoRows (e.g. abstract, review, bibtex)
+	entryRows = new Array(); infoRows = new Array(); absRows = new Array(); revRows = new Array();
+
+	// get data from each row
+	entryRowsData = new Array(); absRowsData = new Array(); revRowsData = new Array(); 
+	
+	BibTeXKeys = new Array();
+	
+	for (var i=0, k=0, j=0; i<allRows.length;i++) {
+		if (allRows[i].className.match(/entry/)) {
+			entryRows[j] = allRows[i];
+			entryRowsData[j] = stripDiacritics(getTextContent(allRows[i]));
+			allRows[i].id ? BibTeXKeys[j] = allRows[i].id : allRows[i].id = 'autokey_'+j;
+			j ++;
+		} else {
+			infoRows[k++] = allRows[i];
+			// check for abstract/review
+			if (allRows[i].className.match(/abstract/)) {
+				absRows.push(allRows[i]);
+				absRowsData[j-1] = stripDiacritics(getTextContent(allRows[i]));
+			} else if (allRows[i].className.match(/review/)) {
+				revRows.push(allRows[i]);
+				revRowsData[j-1] = stripDiacritics(getTextContent(allRows[i]));
+			}
+		}
+	}
+	//number of entries and rows
+	numEntries = entryRows.length;
+	numInfo = infoRows.length;
+	numAbs = absRows.length;
+	numRev = revRows.length;
+}
+
+function quickSearch(){
+	
+	tInput = qsfield;
+
+	if (tInput.value.length == 0) {
+		showAll();
+		setStatistics(-1);
+		qsfield.className = '';
+		return;
+	} else {
+		t = stripDiacritics(tInput.value);
+
+		if(!searchRegExp) { t = escapeRegExp(t); }
+			
+		// only search for valid RegExp
+		try {
+			textRegExp = new RegExp(t,"i");
+			closeAllInfo();
+			qsfield.className = '';
+		}
+			catch(err) {
+			prevSearch = tInput.value;
+			qsfield.className = 'invalidsearch';
+			return;
+		}
+	}
+	
+	// count number of hits
+	var hits = 0;
+
+	// start looping through all entry rows
+	for (var i = 0; cRow = entryRows[i]; i++){
+
+		// only show search the cells if it isn't already hidden OR if the search term is getting shorter, then search all
+		if(cRow.className.indexOf('noshow')==-1 || tInput.value.length <= prevSearch.length){
+			var found = false; 
+
+			if (entryRowsData[i].search(textRegExp) != -1 || BibTeXKeys[i].search(textRegExp) != -1){ 
+				found = true;
+			} else {
+				if(searchAbstract && absRowsData[i]!=undefined) {
+					if (absRowsData[i].search(textRegExp) != -1){ found=true; } 
+				}
+				if(searchReview && revRowsData[i]!=undefined) {
+					if (revRowsData[i].search(textRegExp) != -1){ found=true; } 
+				}
+			}
+			
+			if (found){
+				cRow.className = 'entry show';
+				hits++;
+			} else {
+				cRow.className = 'entry noshow';
+			}
+		}
+	}
+
+	// update statistics
+	setStatistics(hits)
+	
+	// set previous search value
+	prevSearch = tInput.value;
+}
+
+
+// Strip Diacritics from text
+// http://stackoverflow.com/questions/990904/javascript-remove-accents-in-strings
+
+// String containing replacement characters for stripping accents 
+var stripstring = 
+    'AAAAAAACEEEEIIII'+
+    'DNOOOOO.OUUUUY..'+
+    'aaaaaaaceeeeiiii'+
+    'dnooooo.ouuuuy.y'+
+    'AaAaAaCcCcCcCcDd'+
+    'DdEeEeEeEeEeGgGg'+
+    'GgGgHhHhIiIiIiIi'+
+    'IiIiJjKkkLlLlLlL'+
+    'lJlNnNnNnnNnOoOo'+
+    'OoOoRrRrRrSsSsSs'+
+    'SsTtTtTtUuUuUuUu'+
+    'UuUuWwYyYZzZzZz.';
+
+function stripDiacritics(str){
+
+    if(noSquiggles==false){
+        return str;
+    }
+
+    var answer='';
+    for(var i=0;i<str.length;i++){
+        var ch=str[i];
+        var chindex=ch.charCodeAt(0)-192;   // Index of character code in the strip string
+        if(chindex>=0 && chindex<stripstring.length){
+            // Character is within our table, so we can strip the accent...
+            var outch=stripstring.charAt(chindex);
+            // ...unless it was shown as a '.'
+            if(outch!='.')ch=outch;
+        }
+        answer+=ch;
+    }
+    return answer;
+}
+
+// http://stackoverflow.com/questions/3446170/escape-string-for-use-in-javascript-regex
+// NOTE: must escape every \ in the export code because of the JabRef Export...
+function escapeRegExp(str) {
+  return str.replace(/[-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+}
+
+function toggleInfo(articleid,info) {
+
+	var entry = document.getElementById(articleid);
+	var abs = document.getElementById('abs_'+articleid);
+	var rev = document.getElementById('rev_'+articleid);
+	var bib = document.getElementById('bib_'+articleid);
+	
+	if (abs && info == 'abstract') {
+		abs.className.indexOf('noshow') == -1?abs.className = 'abstract noshow':abs.className = 'abstract show';
+	} else if (rev && info == 'review') {
+		rev.className.indexOf('noshow') == -1?rev.className = 'review noshow':rev.className = 'review show';
+	} else if (bib && info == 'bibtex') {
+		bib.className.indexOf('noshow') == -1?bib.className = 'bibtex noshow':bib.className = 'bibtex show';
+	} else { 
+		return;
+	}
+
+	// check if one or the other is available
+	var revshow; var absshow; var bibshow;
+	(abs && abs.className.indexOf('noshow') == -1)? absshow = true: absshow = false;
+	(rev && rev.className.indexOf('noshow') == -1)? revshow = true: revshow = false;	
+	(bib && bib.className.indexOf('noshow') == -1)? bibshow = true: bibshow = false;
+	
+	// highlight original entry
+	if(entry) {
+		if (revshow || absshow || bibshow) {
+		entry.className = 'entry highlight show';
+		} else {
+		entry.className = 'entry show';
+		}
+	}
+	
+	// When there's a combination of abstract/review/bibtex showing, need to add class for correct styling
+	if(absshow) {
+		(revshow||bibshow)?abs.className = 'abstract nextshow':abs.className = 'abstract';
+	} 
+	if (revshow) {
+		bibshow?rev.className = 'review nextshow': rev.className = 'review';
+	}	
+	
+}
+
+function setStatistics (hits) {
+	if(hits < 0) { hits=numEntries; }
+	if(stats) { stats.firstChild.data = hits + '/' + numEntries}
+}
+
+function getTextContent(node) {
+	// Function written by Arve Bersvendsen
+	// http://www.virtuelvis.com
+	
+	if (node.nodeType == 3) {
+	return node.nodeValue;
+	} // text node
+	if (node.nodeType == 1 && node.className != "infolinks") { // element node
+	var text = [];
+	for (var chld = node.firstChild;chld;chld=chld.nextSibling) {
+		text.push(getTextContent(chld));
+	}
+	return text.join("");
+	} return ""; // some other node, won't contain text nodes.
+}
+
+function showAll(){
+	closeAllInfo();
+	for (var i = 0; i < numEntries; i++){ entryRows[i].className = 'entry show'; }
+}
+
+function closeAllInfo(){
+	for (var i=0; i < numInfo; i++){
+		if (infoRows[i].className.indexOf('noshow') ==-1) {
+			infoRows[i].className = infoRows[i].className + ' noshow';
+		}
+	}
+}
+
+function clearQS() {
+	qsfield.value = '';
+	showAll();
+}
+
+function redoQS(){
+	showAll();
+	quickSearch(qsfield);
+}
+
+function updateSetting(obj){
+	var option = obj.id;
+	var checked = obj.value;
+
+	switch(option)
+	 {
+	 case "opt_searchAbs":
+	   searchAbstract=!searchAbstract;
+	   redoQS();
+	   break;
+	 case "opt_searchRev":
+	   searchReview=!searchReview;
+	   redoQS();
+	   break;
+	 case "opt_useRegExp":
+	   searchRegExp=!searchRegExp;
+	   redoQS();
+	   break;
+	 case "opt_noAccents":
+	   noSquiggles=!noSquiggles;
+	   loadTableData();
+	   redoQS();
+	   break;
+	 }
+}
+
+function initPreferences(){
+	if(searchAbstract){document.getElementById("opt_searchAbs").checked = true;}
+	if(searchReview){document.getElementById("opt_searchRev").checked = true;}
+	if(noSquiggles){document.getElementById("opt_noAccents").checked = true;}
+	if(searchRegExp){document.getElementById("opt_useRegExp").checked = true;}
+	
+	if(numAbs==0) {document.getElementById("opt_searchAbs").parentNode.style.display = 'none';}
+	if(numRev==0) {document.getElementById("opt_searchRev").parentNode.style.display = 'none';}
+}
+
+function toggleSettings(){
+	var togglebutton = document.getElementById('showsettings');
+	var settings = document.getElementById('settings');
+	
+	if(settings.className == "hidden"){
+		settings.className = "show";
+		togglebutton.innerText = "close settings";
+		togglebutton.textContent = "close settings";
+	}else{
+		settings.className = "hidden";
+		togglebutton.innerText = "settings...";		
+		togglebutton.textContent = "settings...";
+	}
+}
+
+-->
+</script>
+<style type="text/css">
+body { background-color: white; font-family: Arial, sans-serif; font-size: 13px; line-height: 1.2; padding: 1em; color: #2E2E2E; margin: auto 2em; }
+
+form#quicksearch { width: auto; border-style: solid; border-color: gray; border-width: 1px 0px; padding: 0.7em 0.5em; display:none; position:relative; }
+span#searchstat {padding-left: 1em;}
+
+div#settings { margin-top:0.7em; /* border-bottom: 1px transparent solid; background-color: #efefef; border: 1px grey solid; */ }
+div#settings ul {margin: 0; padding: 0; }
+div#settings li {margin: 0; padding: 0 1em 0 0; display: inline; list-style: none; }
+div#settings li + li { border-left: 2px #efefef solid; padding-left: 0.5em;}
+div#settings input { margin-bottom: 0px;}
+
+div#settings.hidden {display:none;}
+
+#showsettings { border: 1px grey solid; padding: 0 0.5em; float:right; line-height: 1.6em; text-align: right; }
+#showsettings:hover { cursor: pointer; }
+
+.invalidsearch { background-color: red; }
+input[type="button"] { background-color: #efefef; border: 1px #2E2E2E solid;}
+
+table { width: 100%; empty-cells: show; border-spacing: 0em 0.2em; margin: 1em 0em; border-style: none; }
+th, td { border: 1px gray solid; border-width: 1px 1px; padding: 0.5em; vertical-align: top; text-align: left; }
+th { background-color: #efefef; }
+td + td, th + th { border-left: none; }
+
+td a { color: navy; text-decoration: none; }
+td a:hover  { text-decoration: underline; }
+
+tr.noshow { display: none;}
+tr.highlight td { background-color: #EFEFEF; border-top: 2px #2E2E2E solid; font-weight: bold; }
+tr.abstract td, tr.review td, tr.bibtex td { background-color: #EFEFEF; text-align: justify; border-bottom: 2px #2E2E2E solid; }
+tr.nextshow td { border-bottom: 1px gray solid; }
+
+tr.bibtex pre { width: 100%; overflow: auto; white-space: pre-wrap;}
+p.infolinks { margin: 0.3em 0em 0em 0em; padding: 0px; }
+
+@media print {
+	p.infolinks, #qs_settings, #quicksearch, t.bibtex { display: none !important; }
+	tr { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<form action="" id="quicksearch">
+<input type="text" id="qs_field" autocomplete="off" placeholder="Type to search..." /> <input type="button" onclick="clearQS()" value="clear" />
+<span id="searchstat">Matching entries: <span id="stat">0</span></span>
+<div id="showsettings" onclick="toggleSettings()">settings...</div>
+<div id="settings" class="hidden">
+<ul>
+<li><input type="checkbox" class="search_setting" id="opt_searchAbs" onchange="updateSetting(this)"><label for="opt_searchAbs"> include abstract</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_searchRev" onchange="updateSetting(this)"><label for="opt_searchRev"> include review</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_useRegExp" onchange="updateSetting(this)"><label for="opt_useRegExp"> use RegExp</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_noAccents" onchange="updateSetting(this)"><label for="opt_noAccents"> ignore accents</label></li>
+</ul>
+</div>
+</form>
+<table id="qs_table" border="1">
+<thead><tr><th width="20%">Author</th><th width="30%">Title</th><th width="5%">Year</th><th width="30%">Journal/Proceedings</th><th width="10%">Reftype</th><th width="5%">DOI/URL</th></tr></thead>
+<tbody><tr id="Hinton2006" class="entry">
+	<td>Hinton, G., Osindero, S. and Teh, Y.</td>
+	<td>A fast learning algorithm for deep belief nets <p class="infolinks">[<a href="javascript:toggleInfo('Hinton2006','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Hinton2006','bibtex')">BibTeX</a>]</p></td>
+	<td>2006</td>
+	<td>Neural computation<br/>Vol. 18(7), pp. 1527-1554&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1162/neco.2006.18.7.1527">DOI</a> <a href="http://www.mitpressjournals.org/doi/abs/10.1162/neco.2006.18.7.1527">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Hinton2006" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: We show how to use complementary priors to eliminate the explaining- away effects that make inference difficult in densely connected belief nets that have many hidden layers. Using complementary priors, we derive a fast, greedy algorithm that can learn deep, directed belief networks one layer at a time, provided the top two layers form an undirected associa- tive memory. The fast, greedy algorithm is used to initialize a slower learning procedure that fine-tunes the weights using a contrastive ver- sion of the wake-sleep algorithm. After fine-tuning, a network with three hidden layers forms a very good generative model of the joint distribu- tion of handwritten digit images and their labels. This generative model gives better digit classification than the best discriminative learning al- gorithms. The low-dimensional manifolds on which the digits lie are modeled by long ravines in the free-energy landscape of the top-level associative memory, and it is easy to explore these ravines by using the directed connections to display what the associative memory has in mind.</td>
+</tr>
+<tr id="bib_Hinton2006" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Hinton2006,
+  author = {Hinton, GE and Osindero, Simon and Teh, YW},
+  title = {A fast learning algorithm for deep belief nets},
+  journal = {Neural computation},
+  publisher = {MIT Press},
+  year = {2006},
+  volume = {18},
+  number = {7},
+  pages = {1527--1554},
+  url = {http://www.mitpressjournals.org/doi/abs/10.1162/neco.2006.18.7.1527},
+  doi = {http://doi.org/10.1162/neco.2006.18.7.1527}
+}
+</pre></td>
+</tr>
+<tr id="Intelligence2003" class="entry">
+	<td>Intelligence, A.</td>
+	<td>A modern approach <p class="infolinks">[<a href="javascript:toggleInfo('Intelligence2003','bibtex')">BibTeX</a>]</p></td>
+	<td>2003</td>
+	<td>Russell and Norvig<br/>Vol. 25, pp. 1-5&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://scholar.google.com/scholar?hl=en{\&}q=artificial+intelligence+A+Modern+Approach{\&}btnG={\&}as{\_}sdt=1,5{\&}as{\_}sdtp={\#}2">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_Intelligence2003" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Intelligence2003,
+  author = {Intelligence, A},
+  title = {A modern approach},
+  journal = {Russell and Norvig},
+  year = {2003},
+  volume = {25},
+  pages = {1--5},
+  url = {http://scholar.google.com/scholar?hl=en&amp;q=artificial+intelligence+A+Modern+Approach&amp;btnG=&amp;assdt=1,5&amp;assdtp=2}
+}
+</pre></td>
+</tr>
+<tr id="Mikolajczyk2005" class="entry">
+	<td>Mikolajczyk, K. and Schmid, C.</td>
+	<td>A performance evaluation of local descriptors <p class="infolinks">[<a href="javascript:toggleInfo('Mikolajczyk2005','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Mikolajczyk2005','bibtex')">BibTeX</a>]</p></td>
+	<td>2005</td>
+	<td>IEEE Transactions on Pattern Analysis and Machine Intelligence<br/>Vol. 27(10), pp. 1615-1630&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/TPAMI.2005.188">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Mikolajczyk2005" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: In this paper, we compare the performance of descriptors computed for local interest regions, as, for example, extracted by the Harris-Affine detector [32]. Many different descriptors have been proposed in the literature. It is unclear which descriptors</td>
+</tr>
+<tr id="bib_Mikolajczyk2005" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Mikolajczyk2005,
+  author = {Mikolajczyk, Krystian and Schmid, Cordelia},
+  title = {A performance evaluation of local descriptors},
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  year = {2005},
+  volume = {27},
+  number = {10},
+  pages = {1615--1630},
+  doi = {http://doi.org/10.1109/TPAMI.2005.188}
+}
+</pre></td>
+</tr>
+<tr id="Scharstein2002" class="entry">
+	<td>Scharstein, D. and Szeliski, R.</td>
+	<td>A Taxonomy and Evaluation of Dense Two-Frame Stereo Correspondence Algorithms <p class="infolinks">[<a href="javascript:toggleInfo('Scharstein2002','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Scharstein2002','bibtex')">BibTeX</a>]</p></td>
+	<td>2002</td>
+	<td>International Journal of Computer Vision<br/>Vol. 47(1), pp. 7-42&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1023/A:1014573219977">DOI</a> <a href="http://dx.doi.org/10.1023/A:1014573219977">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Scharstein2002" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Stereo matching is one of the most active research areas in computer vision. While a large number of algorithms for stereo correspondence have been developed, relatively little work has been done on characterizing their performance. In this paper, we present a taxonomy of dense, two-frame stereo methods. Our taxonomy is designed to assess the different components and design decisions made in individual stereo algorithms. Using this taxonomy, we compare existing stereo methods and present experiments evaluating the performance of many different variants. In order to establish a common software platform and a collection of data sets for easy evaluation, we have designed a stand-alone, flexible C++ implementation that enables the evaluation of individual components and that can easily be extended to include new algorithms. We have also produced several new multi-frame stereo data sets with ground truth and are making both the code and data sets available on the Web. Finally, we include a comparative evaluation of a large set of today's best-performing stereo algorithms.</td>
+</tr>
+<tr id="bib_Scharstein2002" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Scharstein2002,
+  author = {Scharstein, Daniel and Szeliski, Richard},
+  title = {A Taxonomy and Evaluation of Dense Two-Frame Stereo Correspondence Algorithms},
+  journal = {International Journal of Computer Vision},
+  year = {2002},
+  volume = {47},
+  number = {1},
+  pages = {7--42},
+  url = {http://dx.doi.org/10.1023/A:1014573219977},
+  doi = {http://doi.org/10.1023/A:1014573219977}
+}
+</pre></td>
+</tr>
+<tr id="PirahanSiah2014" class="entry">
+	<td>PirahanSiah, F., Abdullah, S.N.H.S. and Sahran, S.</td>
+	<td>Adaptive image thresholding based on the peak signal-to-noise Ratio <p class="infolinks">[<a href="javascript:toggleInfo('PirahanSiah2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>Research Journal of Applied Sciences, Engineering and Technology<br/>Vol. 8(9), pp. 1104-1116&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_PirahanSiah2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{PirahanSiah2014,
+  author = {PirahanSiah, Farshid and Abdullah, Siti Norul Huda Sheikh and Sahran, Shahnorbanun},
+  title = {Adaptive image thresholding based on the peak signal-to-noise Ratio},
+  journal = {Research Journal of Applied Sciences, Engineering and Technology},
+  publisher = {backslashcopyright Maxwell Scientific Organization},
+  year = {2014},
+  volume = {8},
+  number = {9},
+  pages = {1104--1116}
+}
+</pre></td>
+</tr>
+<tr id="Abdullah2010" class="entry">
+	<td>Abdullah, S.N.H.S., PirahanSiah, F., Khalid, M. and Omar, K.</td>
+	<td>An evaluation of classification techniques using enhanced Geometrical Topological Feature Analysis <p class="infolinks">[<a href="javascript:toggleInfo('Abdullah2010','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Abdullah2010','bibtex')">BibTeX</a>]</p></td>
+	<td>2010</td>
+	<td>2nd Malaysian Joint Conference on Artificial Intelligence (MJCAI 2010), pp. 12-22&nbsp;</td>
+	<td>inproceedings</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="abs_Abdullah2010" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: In this paper, we evaluate the best classification techniques for Malaysia license plate recognition (LPR)system. We also discuss four image classification techniques that are used in contemporary LPR sys- tem worldwide. There are artificial immune recognition system, neural network, bayesian network and support vector machine. We propose and apply enhanced geometrical topological feature analysis on Malaysian character and number images as their inputs. We also explain character error analysis based on those image classification approaches. It shows that support vector machine outperforms compared to other classifiers.</td>
+</tr>
+<tr id="bib_Abdullah2010" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Abdullah2010,
+  author = {Abdullah, Siti Norul Huda Sheikh and PirahanSiah, Farshid and Khalid, Marzuki and Omar, Khairuddin},
+  title = {An evaluation of classification techniques using enhanced Geometrical Topological Feature Analysis},
+  booktitle = {2nd Malaysian Joint Conference on Artificial Intelligence (MJCAI 2010)},
+  year = {2010},
+  pages = {12--22}
+}
+</pre></td>
+</tr>
+<tr id="Lucas1981" class="entry">
+	<td>Lucas, B.D.</td>
+	<td>An Iterative Image Registration Technique with an Application to Stereo Vision <p class="infolinks">[<a href="javascript:toggleInfo('Lucas1981','bibtex')">BibTeX</a>]</p></td>
+	<td>1981</td>
+	<td>Imaging<br/>Vol. 130, pp. 121-129&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Lucas1981" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Lucas1981,
+  author = {Lucas, Bruce D},
+  title = {An Iterative Image Registration Technique with an Application to Stereo Vision},
+  journal = {Imaging},
+  publisher = {Vancouver, BC, Canada},
+  year = {1981},
+  volume = {130},
+  pages = {121--129}
+}
+</pre></td>
+</tr>
+<tr id="LeCun1989" class="entry">
+	<td>LeCun, Y., Boser, B., Denker, J.S., Henderson, D., Howard, R.E., Hubbard, W. and Jackel, L.D.</td>
+	<td>Backpropagation Applied to Handwritten Zip Code Recognition <p class="infolinks">[<a href="javascript:toggleInfo('LeCun1989','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('LeCun1989','bibtex')">BibTeX</a>]</p></td>
+	<td>1989</td>
+	<td>Neural Computation<br/>Vol. 1(4), pp. 541-551&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1162/neco.1989.1.4.541">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_LeCun1989" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: The ability of learning networks to generalize can be greatly enhanced by providing constraints from the task domain. This paper demonstrates how such constraints can be integrated into a backpropagation network through the architecture of the network. This approach has been successfully applied to the recognition of handwritten zip code digits provided by the US Postal Service. A single network learns the entire recognition operation, going from the normalized image of the character to the final classification.</td>
+</tr>
+<tr id="bib_LeCun1989" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{LeCun1989,
+  author = {LeCun, Y. and Boser, B. and Denker, J. S. and Henderson, D. and Howard, R. E. and Hubbard, W. and Jackel, L. D.},
+  title = {Backpropagation Applied to Handwritten Zip Code Recognition},
+  journal = {Neural Computation},
+  year = {1989},
+  volume = {1},
+  number = {4},
+  pages = {541--551},
+  doi = {http://doi.org/10.1162/neco.1989.1.4.541}
+}
+</pre></td>
+</tr>
+<tr id="Griffin2007" class="entry">
+	<td>Griffin, G., Holub, a. and Perona, P.</td>
+	<td>Caltech-256 object category dataset <p class="infolinks">[<a href="javascript:toggleInfo('Griffin2007','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Griffin2007','bibtex')">BibTeX</a>]</p></td>
+	<td>2007</td>
+	<td>Caltech mimeo<br/>Vol. 11(1), pp. 20&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://authors.library.caltech.edu/7694">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Griffin2007" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: We introduce a challenging set of 256 object categories containing a total of 30607 images. The original Caltech-101 1 was collected by choosing a set of object categories, downloading examples from Google Images and then manually screening out all images that did not fit the category. Caltech-256 is collected in a similar manner with several improvements: a) the number of categories is more than doubled, b) the minimum number of images in any category is increased from 31 to 80, c) aftifacts due to image rotation are avoided and d) a new and larger clutter category is introduced for testing background rejection. We suggest several testing paradigms to measure classification performance, the benchmark the dataset using two simple metrics as well as a state-of-the-art spatial pyramid matching 2 algorithm. Finally we use the clutter category to train an interest detector which rejects uninformative background regions.</td>
+</tr>
+<tr id="bib_Griffin2007" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Griffin2007,
+  author = {Griffin, G and Holub, a and Perona, P},
+  title = {Caltech-256 object category dataset},
+  journal = {Caltech mimeo},
+  year = {2007},
+  volume = {11},
+  number = {1},
+  pages = {20},
+  url = {http://authors.library.caltech.edu/7694}
+}
+</pre></td>
+</tr>
+<tr id="PirahanSiah" class="entry">
+	<td>PirahanSiah, F., Abdullah, S.N.H.S. and Sahran, S.</td>
+	<td>Camera calibration for multi-modal robot vision based on image quality assessment <p class="infolinks">[<a href="javascript:toggleInfo('PirahanSiah','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td>(10.1109/ASCC.2015.7360336)Control Conference (ASCC), 2015 10th Asian, pp. 1-6&nbsp;</td>
+	<td>inproceedings</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_PirahanSiah" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{PirahanSiah,
+  author = {PirahanSiah, Farshid and Abdullah, Siti Norul Huda Sheikh and Sahran, Shahnorbanun},
+  title = {Camera calibration for multi-modal robot vision based on image quality assessment},
+  booktitle = {Control Conference (ASCC), 2015 10th Asian},
+  number = {10.1109/ASCC.2015.7360336},
+  pages = {1--6}
+}
+</pre></td>
+</tr>
+<tr id="Naeimizaghiani2011" class="entry">
+	<td>Naeimizaghiani, M., Abdullah, S.N.H.S., Bataineh, B. and PirahanSiah, F.</td>
+	<td>Character recognition based on global feature extraction <p class="infolinks">[<a href="javascript:toggleInfo('Naeimizaghiani2011','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Naeimizaghiani2011','bibtex')">BibTeX</a>]</p></td>
+	<td>2011</td>
+	<td>Proceedings of the 2011 International Conference on Electrical Engineering and Informatics<br/>Vol. 52(2), pp. 1-4&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://ieeexplore.ieee.org/xpls/abs{\_}all.jsp?arnumber=5665123">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Naeimizaghiani2011" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This paper presents a enhanced feature extraction method which is a combination and selected of two feature extraction techniques of Gray Level Co occurrence Matrix (GLCM) and Edge Direction Matrixes (EDMS) for character recognition purpose. It is apparent that one of the most important steps in a character recognition system is selecting a better feature extraction technique, while the variety of method makes difficulty for finding the best techniques for character recognition. The dataset of images that has been applied to the different feature extraction techniques includes the binary character with different sizes. Experimental results show the better performance of proposed method in compared with GLCM and EDMS method after performing the feature selection with neural network, bayes network and decision tree classifiers</td>
+</tr>
+<tr id="bib_Naeimizaghiani2011" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Naeimizaghiani2011,
+  author = {Naeimizaghiani, Maryam and Abdullah, Siti Norul Huda Sheikh and Bataineh, Bilal and PirahanSiah, Farshid},
+  title = {Character recognition based on global feature extraction},
+  journal = {Proceedings of the 2011 International Conference on Electrical Engineering and Informatics},
+  year = {2011},
+  volume = {52},
+  number = {2},
+  pages = {1--4},
+  url = {http://ieeexplore.ieee.org/xpls/absall.jsp?arnumber=5665123}
+}
+</pre></td>
+</tr>
+<tr id="Pirahansiah2011" class="entry">
+	<td>Pirahansiah, F.</td>
+	<td>Comparison Single Thresholding Method for Image Segmentation on Hand Written Images <p class="infolinks">[<a href="javascript:toggleInfo('Pirahansiah2011','bibtex')">BibTeX</a>]</p></td>
+	<td>2011</td>
+	<td>International Conference on Pattern Analysis and Intelligent Robotics&nbsp;</td>
+	<td>inproceedings</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Pirahansiah2011" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Pirahansiah2011,
+  author = {Pirahansiah, Farshid},
+  title = {Comparison Single Thresholding Method for Image Segmentation on Hand Written Images},
+  booktitle = {International Conference on Pattern Analysis and Intelligent Robotics},
+  year = {2011}
+}
+</pre></td>
+</tr>
+<tr id="Szeliski2010" class="entry">
+	<td>Szeliski, R.</td>
+	<td>Computer Vision: Algorithms and Applications <p class="infolinks">[<a href="javascript:toggleInfo('Szeliski2010','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Szeliski2010','bibtex')">BibTeX</a>]</p></td>
+	<td>2010</td>
+	<td>, pp. 870&nbsp;</td>
+	<td>book</td>
+	<td><a href="http://doi.org/10.1007/978-1-84882-935-0">DOI</a> <a href="http://books.google.com/books?id=216LQgAACAAJ{\&}pgis=1">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Szeliski2010" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: As humans, we perceive the three-dimensional structure of the world around us with apparent ease. However, despite all of the recent advances in computer vision research, the dream of having a computer interpret an image at the same level as a two-year old remains elusive. Why is computer vision such a challenging problem, and what is the current state of the art?Computer Vision: Algorithms and Applications explores the variety of techniques commonly used to analyze and interpret images. It also describes challenging real-world applications where vision is being successfully used, both for specialized applications such as medical imaging and fun consumer-level tasks such as image editing and stitching, which students can apply to their own personal photos and videos.More than just a source of "recipes", this text/reference also takes a scientific approach to basic vision problems, formulating physical models of the imaging process before inverting this process to produce the best possible descriptions of a scene. Exercises are presented throughout the book, with a heavy emphasis on testing algorithms.Suitable for either an undergraduate or a graduate-level course in computer vision, this textbook focuses on basic techniques that work under real-world conditions and encourages students to push their creative boundaries.Dr. Richard Szeliski has over twenty years' experience in computer vision research, most notably at Digital Equipment Corporation and Microsoft.</td>
+</tr>
+<tr id="bib_Szeliski2010" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{Szeliski2010,
+  author = {Szeliski, Richard},
+  title = {Computer Vision: Algorithms and Applications},
+  publisher = {Springer Science &amp; Business Media},
+  year = {2010},
+  pages = {870},
+  url = {http://books.google.com/books?id=216LQgAACAAJ&amp;pgis=1},
+  doi = {http://doi.org/10.1007/978-1-84882-935-0}
+}
+</pre></td>
+</tr>
+<tr id="Prince2013" class="entry">
+	<td>Prince, D.S.J.D.</td>
+	<td>Computer Vision: Models, Learning, and Inference <p class="infolinks">[<a href="javascript:toggleInfo('Prince2013','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Prince2013','bibtex')">BibTeX</a>]</p></td>
+	<td>2013</td>
+	<td><br/>Vol. 12(4)The Lancet Neurology, pp. 335&nbsp;</td>
+	<td>book</td>
+	<td><a href="http://doi.org/10.1016/S1474-4422(13)70064-4">DOI</a> <a href="http://linkinghub.elsevier.com/retrieve/pii/S1474442213700644">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Prince2013" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This modern treatment of computer vision focuses on learning and inference in probabilistic models as a unifying theme. It shows how to use training data to learn the relationships between the observed image data and the aspects of the world that we wish to estimate, such as the 3D structure or the object class, and how to exploit these relationships to make new inferences about the world from new image data. With minimal prerequisites, the book starts from the basics of probability and model fitting and works up to real examples that the reader can implement and modify to build useful vision systems. Primarily meant for advanced undergraduate and graduate students, the detailed methodological presentation will also be useful for practitioners of computer vision. - Covers cutting-edge techniques, including graph cuts, machine learning, and multiple view geometry. - A unified approach shows the common basis for solutions of important computer vision problems, such as camera calibration, face recognition, and object tracking. - More than 70 algorithms are described in sufficient detail to implement. - More than 350 full-color illustrations amplify the text. - The treatment is self-contained, including all of the background mathematics. - Additional resources at www.computervisionmodels.com.</td>
+</tr>
+<tr id="bib_Prince2013" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{Prince2013,
+  author = {Prince, Dr Simon J. D.},
+  title = {Computer Vision: Models, Learning, and Inference},
+  booktitle = {The Lancet Neurology},
+  publisher = {Cambridge University Press},
+  year = {2013},
+  volume = {12},
+  number = {4},
+  pages = {335},
+  url = {http://linkinghub.elsevier.com/retrieve/pii/S1474442213700644},
+  doi = {http://doi.org/10.1016/S1474-4422(13)70064-4}
+}
+</pre></td>
+</tr>
+<tr id="Smeulders2000" class="entry">
+	<td>Smeulders, A., Worring, M., Santini, S., Gupta, A. and Jain, R.</td>
+	<td>Content based image retrieval at the end of the early years <p class="infolinks">[<a href="javascript:toggleInfo('Smeulders2000','bibtex')">BibTeX</a>]</p></td>
+	<td>2000</td>
+	<td>IEEE Trans. On Pattern Analysis and Machine Intelligence<br/>Vol. 22(12)(12), pp. 1349-1380&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://ieeexplore.ieee.org/xpl/freeabs{\_}all.jsp?tp={\&}arnumber=895972{\&}isnumber=19391">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_Smeulders2000" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Smeulders2000,
+  author = {Smeulders, A and Worring, M and Santini, S and Gupta, A and Jain, R},
+  title = {Content based image retrieval at the end of the early years},
+  journal = {IEEE Trans. On Pattern Analysis and Machine Intelligence},
+  year = {2000},
+  volume = {22(12)},
+  number = {12},
+  pages = {1349--1380},
+  url = {http://ieeexplore.ieee.org/xpl/freeabsall.jsp?tp=&amp;arnumber=895972&amp;isnumber=19391}
+}
+</pre></td>
+</tr>
+<tr id="Oertel2008" class="entry">
+	<td>Oertel, C., Colder, B., Colombe, J., High, J., Ingram, M. and Sallee, P.</td>
+	<td>Current challenges in automating visual perception <p class="infolinks">[<a href="javascript:toggleInfo('Oertel2008','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Oertel2008','bibtex')">BibTeX</a>]</p></td>
+	<td>2008</td>
+	<td>Proceedings - Applied Imagery Pattern Recognition Workshop, pp. 1-8&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1109/AIPR.2008.4906457">DOI</a> <a href="http://dx.doi.org/10.1109/AIPR.2008.4906457">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Oertel2008" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: After nearly half a century of computer vision research, application-specific systems are common but the goal of developing a robust, general-purpose computer vision system remains out of reach. Rather than focus on the strengths and weaknesses of current computer vision approaches, this paper will enumerate and investigate the challenges that must be overcome before this goal can be achieved. Key challenges include handling variations in environment or acquisition parameters such as lighting, view angle, distance, and image quality; recognizing naturally occurring as well as intentionally deceptive variations in object appearance; providing robust general-purpose image segmentation and co-registration; generating 3D representations from 2D images; developing useful object representations; providing required knowledge that is not represented in the image itself; and managing computational complexity. Each of these challenges, along with their relevance to solving the vision problem, will be discussed. Understanding these challenges as a whole may provide insight into underlying mechanisms that will provide the backbone of a robust general-purpose computer vision system.</td>
+</tr>
+<tr id="bib_Oertel2008" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Oertel2008,
+  author = {Oertel, Carsten and Colder, Brian and Colombe, Jeffrey and High, Julia and Ingram, Michael and Sallee, Phil},
+  title = {Current challenges in automating visual perception},
+  booktitle = {Proceedings - Applied Imagery Pattern Recognition Workshop},
+  publisher = {IEEE Computer Society},
+  year = {2008},
+  pages = {1--8},
+  url = {http://dx.doi.org/10.1109/AIPR.2008.4906457},
+  doi = {http://doi.org/10.1109/AIPR.2008.4906457}
+}
+</pre></td>
+</tr>
+<tr id="Breitenreiter2015" class="entry">
+	<td>Breitenreiter, A., Poppinga, H., Berlin, T.U. and Technik, F.N.</td>
+	<td>Deep Learning <p class="infolinks">[<a href="javascript:toggleInfo('Breitenreiter2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td><br/>Vol. 521(7553), pp. 2015&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1038/nmeth.3707">DOI</a> &nbsp;</td>
+</tr>
+<tr id="bib_Breitenreiter2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Breitenreiter2015,
+  author = {Breitenreiter, Anselm and Poppinga, Heiko and Berlin, T U and Technik, Fachgebiet Nachrichten},
+  title = {Deep Learning},
+  publisher = {Nature Research},
+  year = {2015},
+  volume = {521},
+  number = {7553},
+  pages = {2015},
+  doi = {http://doi.org/10.1038/nmeth.3707}
+}
+</pre></td>
+</tr>
+<tr id="Wei2015" class="entry">
+	<td>Wei, X.-S., Gao, B.-B. and Wu, J.</td>
+	<td>Deep spatial pyramid ensemble for cultural event recognition <p class="infolinks">[<a href="javascript:toggleInfo('Wei2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>Proceedings of the IEEE International Conference on Computer Vision Workshops, pp. 38-44&nbsp;</td>
+	<td>inproceedings</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Wei2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Wei2015,
+  author = {Wei, Xiu-Shen and Gao, Bin-Bin and Wu, Jianxin},
+  title = {Deep spatial pyramid ensemble for cultural event recognition},
+  booktitle = {Proceedings of the IEEE International Conference on Computer Vision Workshops},
+  year = {2015},
+  pages = {38--44}
+}
+</pre></td>
+</tr>
+<tr id="He2015" class="entry">
+	<td>He, K., Zhang, X., Ren, S. and Sun, J.</td>
+	<td>Delving deep into rectifiers: Surpassing human-level performance on imagenet classification <p class="infolinks">[<a href="javascript:toggleInfo('He2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>Proceedings of the IEEE international conference on computer vision, pp. 1026-1034&nbsp;</td>
+	<td>inproceedings</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_He2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{He2015,
+  author = {He, Kaiming and Zhang, Xiangyu and Ren, Shaoqing and Sun, Jian},
+  title = {Delving deep into rectifiers: Surpassing human-level performance on imagenet classification},
+  booktitle = {Proceedings of the IEEE international conference on computer vision},
+  year = {2015},
+  pages = {1026--1034}
+}
+</pre></td>
+</tr>
+<tr id="Ashtari2015" class="entry">
+	<td>Ashtari, A.H., Nordin, M.J. and Kahaki, S.M.M.</td>
+	<td>Double Line Image Rotation <p class="infolinks">[<a href="javascript:toggleInfo('Ashtari2015','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Ashtari2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>IEEE Transactions on Image Processing<br/>Vol. 24(11), pp. 3370-3385&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/TIP.2015.2440763">DOI</a> <a href="http://ieeexplore.ieee.org/lpdocs/epic03/wrapper.htm?arnumber=7117407">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Ashtari2015" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This paper proposes a fast algorithm for rotating images while preserving their quality. The new approach rotates images based on vertical or horizontal lines in the original image and their rotated equation in the target image. The proposed method is a one-pass method that determines a based-line equation in the target image and extracts all corresponding pixels on the base-line. Floating-point multiplications are performed to calculate the base-line in the target image, and other line coordinates are calculated using integer addition or subtraction and logical justifications from the base-line pixel coordinates in the target image. To avoid a heterogeneous distance between rotated pixels in the target image, each line rotates to two adjacent lines. The proposed method yields good performance in terms of speed and quality according to the results of an analysis of the computation speed and accuracy.</td>
+</tr>
+<tr id="bib_Ashtari2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Ashtari2015,
+  author = {Ashtari, Amir Hossein and Nordin, Md Jan and Kahaki, Seyed Mostafa Mousavi},
+  title = {Double Line Image Rotation},
+  journal = {IEEE Transactions on Image Processing},
+  year = {2015},
+  volume = {24},
+  number = {11},
+  pages = {3370--3385},
+  url = {http://ieeexplore.ieee.org/lpdocs/epic03/wrapper.htm?arnumber=7117407},
+  doi = {http://doi.org/10.1109/TIP.2015.2440763}
+}
+</pre></td>
+</tr>
+<tr id="Srivastava2014" class="entry">
+	<td>Srivastava, N., Hinton, G.E., Krizhevsky, A., Sutskever, I. and Salakhutdinov, R.</td>
+	<td>Dropout: a simple way to prevent neural networks from overfitting. <p class="infolinks">[<a href="javascript:toggleInfo('Srivastava2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>Journal of Machine Learning Research<br/>Vol. 15(1), pp. 1929-1958&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Srivastava2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Srivastava2014,
+  author = {Srivastava, Nitish and Hinton, Geoffrey E and Krizhevsky, Alex and Sutskever, Ilya and Salakhutdinov, Ruslan},
+  title = {Dropout: a simple way to prevent neural networks from overfitting.},
+  journal = {Journal of Machine Learning Research},
+  year = {2014},
+  volume = {15},
+  number = {1},
+  pages = {1929--1958}
+}
+</pre></td>
+</tr>
+<tr id="Xu2015" class="entry">
+	<td>Xu, B., Wang, N., Chen, T. and Li, M.</td>
+	<td>Empirical evaluation of rectified activations in convolutional network <p class="infolinks">[<a href="javascript:toggleInfo('Xu2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>arXiv preprint arXiv:1505.00853&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Xu2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Xu2015,
+  author = {Xu, Bing and Wang, Naiyan and Chen, Tianqi and Li, Mu},
+  title = {Empirical evaluation of rectified activations in convolutional network},
+  journal = {arXiv preprint arXiv:1505.00853},
+  year = {2015}
+}
+</pre></td>
+</tr>
+<tr id="Zhou2012" class="entry">
+	<td>Zhou, Z.-H.</td>
+	<td>Ensemble methods: foundations and algorithms <p class="infolinks">[<a href="javascript:toggleInfo('Zhou2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Zhou2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{Zhou2012,
+  author = {Zhou, Zhi-Hua},
+  title = {Ensemble methods: foundations and algorithms},
+  publisher = {CRC press},
+  year = {2012}
+}
+</pre></td>
+</tr>
+<tr id="Freeman2002" class="entry">
+	<td>Freeman, W.T., Jones, T.R. and Pasztor, E.C.</td>
+	<td>Example-Based Super-Resolution <p class="infolinks">[<a href="javascript:toggleInfo('Freeman2002','bibtex')">BibTeX</a>]</p></td>
+	<td>2002</td>
+	<td>IEEE Computer graphics and Applications<br/>Vol. 22(April), pp. 56-65&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Freeman2002" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Freeman2002,
+  author = {Freeman, William T and Jones, Thouis R and Pasztor, Egon C},
+  title = {Example-Based Super-Resolution},
+  journal = {IEEE Computer graphics and Applications},
+  year = {2002},
+  volume = {22},
+  number = {April},
+  pages = {56--65}
+}
+</pre></td>
+</tr>
+<tr id="Zhao2003" class="entry">
+	<td>Zhao, W., Chellappa, R., Phillips, P.J., Rosenfeld, a., Zhao, W., Chellappa, R., Chellappa, R., Phillips, P.J., Phillips, P.J., Rosenfeld, a. and Rosenfeld, a.</td>
+	<td>Face Recognition: A Literature Survey <p class="infolinks">[<a href="javascript:toggleInfo('Zhao2003','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Zhao2003','bibtex')">BibTeX</a>]</p></td>
+	<td>2003</td>
+	<td>ACM Comput. Surv.<br/>Vol. 35(4), pp. 399-458&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1145/954339.954342">DOI</a> <a href="http://www.face-rec.org/interesting-papers/General/zhao00face.pdf{\%}5Cnhttp://portal.acm.org/citation.cfm?id=954342{\%}5Cnhttp://doi.acm.org/10.1145/954339.954342">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Zhao2003" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: As one of the most successful applications of image analysis and understanding, face recognition has recently received significant attention, especially during the past several years. At least two reasons account for this trend: the first is the wide range of commercial and law enforcement applications, and the second is the availability of feasible technologies after 30 years of research. Even though current machine recognition systems have reached a certain level of maturity, their success is limited by the conditions imposed by many real applications. For example, recognition of face images acquired in an outdoor environment with changes in illumination and/or pose remains a largely unsolved problem. In other words, current systems are still far away from the capability of the human perception system.This paper provides an up-to-date critical survey of still- and video-based face recognition research. There are two underlying motivations for us to write this survey paper: the first is to provide an up-to-date review of the existing literature, and the second is to offer some insights into the studies of machine recognition of faces. To provide a comprehensive survey, we not only categorize existing recognition techniques but also present detailed descriptions of representative methods within each category. In addition, relevant topics such as psychophysical studies, system evaluation, and issues of illumination and pose variation are covered.</td>
+</tr>
+<tr id="bib_Zhao2003" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Zhao2003,
+  author = {Zhao, W. and Chellappa, R. and Phillips, P. J. and Rosenfeld, a. and Zhao, W. and Chellappa, R. and Chellappa, R. and Phillips, P. J. and Phillips, P. J. and Rosenfeld, a. and Rosenfeld, a.},
+  title = {Face Recognition: A Literature Survey},
+  journal = {ACM Comput. Surv.},
+  publisher = {ACM},
+  year = {2003},
+  volume = {35},
+  number = {4},
+  pages = {399--458},
+  url = {http://www.face-rec.org/interesting-papers/General/zhao00face.pdf&percnt;5Cnhttp://portal.acm.org/citation.cfm?id=954342&percnt;5Cnhttp://doi.acm.org/10.1145/954339.954342},
+  doi = {http://doi.org/10.1145/954339.954342}
+}
+</pre></td>
+</tr>
+<tr id="Ilboudo2016" class="entry">
+	<td>Ilboudo, S.D.O., Sombi??, I., Soubeiga, A.K. and Dr??bel, T.</td>
+	<td>Facteurs influen??ant le refus de consulter au centre de sant?? dans la r??gion rurale Ouest du Burkina Faso <p class="infolinks">[<a href="javascript:toggleInfo('Ilboudo2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Ilboudo2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td><br/>Vol. 28(3)Sante Publique, pp. 391-397&nbsp;</td>
+	<td>book</td>
+	<td><a href="http://doi.org/10.1017/CBO9781107415324.004">DOI</a> <a href="http://www.robots.ox.ac.uk/{~}vgg/hzbook/index.html">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Ilboudo2016" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Predicting the binding mode of flexible polypeptides to proteins is an important task that falls outside the domain of applicability of most small molecule and protein−protein docking tools. Here, we test the small molecule flexible ligand docking program Glide on a set of 19 non-&alpha;-helical peptides and systematically improve pose prediction accuracy by enhancing Glide sampling for flexible polypeptides. In addition, scoring of the poses was improved by post-processing with physics-based implicit solvent MM- GBSA calculations. Using the best RMSD among the top 10 scoring poses as a metric, the success rate (RMSD ≤ 2.0 &Aring; for the interface backbone atoms) increased from 21&percnt; with default Glide SP settings to 58&percnt; with the enhanced peptide sampling and scoring protocol in the case of redocking to the native protein structure. This approaches the accuracy of the recently developed Rosetta FlexPepDock method (63&percnt; success for these 19 peptides) while being over 100 times faster. Cross-docking was performed for a subset of cases where an unbound receptor structure was available, and in that case, 40&percnt; of peptides were docked successfully. We analyze the results and find that the optimized polypeptide protocol is most accurate for extended peptides of limited size and number of formal charges, defining a domain of applicability for this approach.</td>
+</tr>
+<tr id="bib_Ilboudo2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{Ilboudo2016,
+  author = {Ilboudo, Sidb??wendin David Olivier and Sombi??, Issa and Soubeiga, Andr?? Kamba and Dr??bel, Tania},
+  title = {Facteurs influen??ant le refus de consulter au centre de sant?? dans la r??gion rurale Ouest du Burkina Faso},
+  booktitle = {Sante Publique},
+  publisher = {Cambridge University Press, ISBN: 0521540518},
+  year = {2016},
+  volume = {28},
+  number = {3},
+  pages = {391--397},
+  edition = {Second},
+  url = {http://www.robots.ox.ac.uk/&nbsp;vgg/hzbook/index.html},
+  doi = {http://doi.org/10.1017/CBO9781107415324.004}
+}
+</pre></td>
+</tr>
+<tr id="PirahanSiah2017" class="entry">
+	<td>PirahanSiah, F.</td>
+	<td>Farshid PirahanSiah Website <p class="infolinks">[<a href="javascript:toggleInfo('PirahanSiah2017','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td><a href="http://www.pirahansiah.com/">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_PirahanSiah2017" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{PirahanSiah2017,
+  author = {PirahanSiah, Farshid},
+  title = {Farshid PirahanSiah Website},
+  year = {2017},
+  url = {http://www.pirahansiah.com/}
+}
+</pre></td>
+</tr>
+<tr id="Montemerlo2002" class="entry">
+	<td>Montemerlo, M., Thrun, S., Koller, D. and Wegbreit, B.</td>
+	<td>FastSLAM: A factored solution to the simultaneous localization and mapping problem <p class="infolinks">[<a href="javascript:toggleInfo('Montemerlo2002','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Montemerlo2002','bibtex')">BibTeX</a>]</p></td>
+	<td>2002</td>
+	<td><br/>Vol. 68(2)Proc. of 8th National Conference on Artificial Intelligence/14th Conference on Innovative Applications of Artificial Intelligence, pp. 593-598&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="10.1.1.16.2153">DOI</a> <a href="http://scholar.google.com/scholar?hl=en{\&}btnG=Search{\&}q=intitle:FastSLAM+:+A+Factored+Solution+to+the+Simultaneous+Localization+and+Mapping+Problem{\#}0">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Montemerlo2002" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: The ability to simultaneously localize a robot and accurately map its surroundings is considered by many to be a key prerequisite of truly autonomous robots. However, few approaches to this problem scale up to handle the very large number of landmarks present in real environments. Kalman filter-based algorithms, for example, require time quadratic in the number of landmarks to incorporate each sensor observation. This paper presents FastSLAM, an algorithm that recursively estimates the full posterior distribution over robot pose and landmark locations, yet scales logarithmically with the number of landmarks in the map. This algorithm is based on a factorization of the posterior into a product of conditional landmark distributions and a distribution over robot paths. The algorithm has been run successfully on as many as 50,000 landmarks, environments far beyond the reach of previous approaches. Experimental results demonstrate the advantages and limitations of the FastSLAM algorithm on both simulated and real-world data.</td>
+</tr>
+<tr id="bib_Montemerlo2002" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Montemerlo2002,
+  author = {Montemerlo, Michael and Thrun, Sebastian and Koller, Daphne and Wegbreit, Ben},
+  title = {FastSLAM: A factored solution to the simultaneous localization and mapping problem},
+  booktitle = {Proc. of 8th National Conference on Artificial Intelligence/14th Conference on Innovative Applications of Artificial Intelligence},
+  year = {2002},
+  volume = {68},
+  number = {2},
+  pages = {593--598},
+  url = {http://scholar.google.com/scholar?hl=en&amp;btnG=Search&amp;q=intitle:FastSLAM+:+A+Factored+Solution+to+the+Simultaneous+Localization+and+Mapping+Problem0},
+  doi = {10.1.1.16.2153}
+}
+</pre></td>
+</tr>
+<tr id="Nixon2012" class="entry">
+	<td>Nixon, M.S. and Aguado, A.S.</td>
+	<td>Feature Extraction &amp; Image Processing for Computer Vision <p class="infolinks">[<a href="javascript:toggleInfo('Nixon2012','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Nixon2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>, pp. 181-182&nbsp;</td>
+	<td>book</td>
+	<td><a href="http://doi.org/10.1016/B978-0-12-396549-3.00010-0">DOI</a> <a href="https://books.google.com/books?id=lytnomY-r7YC">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Nixon2012" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This book is an essential guide to the implementation of image processing and computer vision techniques, with tutorial introductions and sample code in Matlab. Algorithms are presented and fully explained to enable complete understanding of the methods and techniques demonstrated. As one reviewer noted, "The main strength of the proposed book is the exemplar code of the algorithms." Fully updated with the latest developments in feature extraction, including expanded tutorials and new techniques, this new edition contains extensive new material on Haar wavelets, Viola-Jones, bilateral filtering, SURF, PCA-SIFT, moving object detection and tracking, development of symmetry operators, LBP texture analysis, Adaboost, and a new appendix on color models. Coverage of distance measures, feature detectors, wavelets, level sets and texture tutorials has been extended. Named a 2012 Notable Computer Book for Computing Methodologies by Computing ReviewsEssential reading for engineers and students working in this cutting-edge fieldIdeal module text and background reference for courses in image processing and computer visionThe only currently available text to concentrate on feature extraction with working implementation and worked through derivation</td>
+</tr>
+<tr id="bib_Nixon2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{Nixon2012,
+  author = {Nixon, Mark S. and Aguado, Alberto S.},
+  title = {Feature Extraction &amp; Image Processing for Computer Vision},
+  publisher = {Academic Press},
+  year = {2012},
+  pages = {181--182},
+  url = {https://books.google.com/books?id=lytnomY-r7YC},
+  doi = {http://doi.org/10.1016/B978-0-12-396549-3.00010-0}
+}
+</pre></td>
+</tr>
+<tr id="Caselles1997" class="entry">
+	<td>Caselles, V., Kimmel, R. and Sapiro, G.</td>
+	<td>Geodesic Active Contours <p class="infolinks">[<a href="javascript:toggleInfo('Caselles1997','bibtex')">BibTeX</a>]</p></td>
+	<td>1997</td>
+	<td>Ijcv<br/>Vol. 22(1), pp. 61-79&nbsp;</td>
+	<td>article</td>
+	<td><a href="ftp://ftp-sop.inria.fr/athena/Team/Rachid.Deriche/Robotvis/Draft/GAC{\_}article.pdf">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_Caselles1997" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Caselles1997,
+  author = {Caselles, V and Kimmel, R and Sapiro, G},
+  title = {Geodesic Active Contours},
+  journal = {Ijcv},
+  year = {1997},
+  volume = {22},
+  number = {1},
+  pages = {61--79},
+  url = {ftp://ftp-sop.inria.fr/athena/Team/Rachid.Deriche/Robotvis/Draft/GACarticle.pdf}
+}
+</pre></td>
+</tr>
+<tr id="Szegedy2015" class="entry">
+	<td>Szegedy, C., Liu, W., Jia, Y., Sermanet, P., Reed, S., Anguelov, D., Erhan, D., Vanhoucke, V. and Rabinovich, A.</td>
+	<td>Going deeper with convolutions <p class="infolinks">[<a href="javascript:toggleInfo('Szegedy2015','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Szegedy2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td><br/>Vol. 07-12-June-2015Proceedings of the IEEE Computer Society Conference on Computer Vision and Pattern Recognition, pp. 1-9&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1109/CVPR.2015.7298594">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Szegedy2015" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Abstract We propose a deep convolutional neural network architecture codenamed Incep- tion, which was responsible for setting the new state of the art for classification and detection in the ImageNet Large-Scale Visual Recognition Challenge 2014 (ILSVRC14). The main hallmark of this architecture is the improved utilization of the computing resources inside the network. This was achieved by a carefully crafted design that allows for increasing the depth and width of the network while keeping the computational budget constant. To optimize quality, the architectural decisions were based on the Hebbian principle and the intuition of multi-scale processing. One particular incarnation used in our submission for ILSVRC14 is called GoogLeNet, a 22 layers deep network, the quality of which is assessed in the context of classification and detection.</td>
+</tr>
+<tr id="bib_Szegedy2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Szegedy2015,
+  author = {Szegedy, Christian and Liu, Wei and Jia, Yangqing and Sermanet, Pierre and Reed, Scott and Anguelov, Dragomir and Erhan, Dumitru and Vanhoucke, Vincent and Rabinovich, Andrew},
+  title = {Going deeper with convolutions},
+  booktitle = {Proceedings of the IEEE Computer Society Conference on Computer Vision and Pattern Recognition},
+  year = {2015},
+  volume = {07-12-June-2015},
+  pages = {1--9},
+  doi = {http://doi.org/10.1109/CVPR.2015.7298594}
+}
+</pre></td>
+</tr>
+<tr id="LeCun1998" class="entry">
+	<td>LeCun, Y., Bottou, L., Bengio, Y. and Haffner, P.</td>
+	<td>Gradient-based learning applied to document recognition <p class="infolinks">[<a href="javascript:toggleInfo('LeCun1998','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('LeCun1998','bibtex')">BibTeX</a>]</p></td>
+	<td>1998</td>
+	<td>Proceedings of the IEEE<br/>Vol. 86(11), pp. 2278-2323&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/5.726791">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_LeCun1998" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Multilayer neural networks trained with the back-propagationbackslashnalgorithm constitute the best example of a successful gradient basedbackslashnlearning technique. Given an appropriate network architecture,backslashngradient-based learning algorithms can be used to synthesize a complexbackslashndecision surface that can classify high-dimensional patterns, such asbackslashnhandwritten characters, with minimal preprocessing. This paper reviewsbackslashnvarious methods applied to handwritten character recognition andbackslashncompares them on a standard handwritten digit recognition task.backslashnConvolutional neural networks, which are specifically designed to dealbackslashnwith the variability of 2D shapes, are shown to outperform all otherbackslashntechniques. Real-life document recognition systems are composed ofbackslashnmultiple modules including field extraction, segmentation recognition,backslashnand language modeling. A new learning paradigm, called graph transformerbackslashnnetworks (GTN), allows such multimodule systems to be trained globallybackslashnusing gradient-based methods so as to minimize an overall performancebackslashnmeasure. Two systems for online handwriting recognition are described.backslashnExperiments demonstrate the advantage of global training, and thebackslashnflexibility of graph transformer networks. A graph transformer networkbackslashnfor reading a bank cheque is also described. It uses convolutionalbackslashnneural network character recognizers combined with global trainingbackslashntechniques to provide record accuracy on business and personal cheques.backslashnIt is deployed commercially and reads several million cheques per daybackslashn</td>
+</tr>
+<tr id="bib_LeCun1998" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{LeCun1998,
+  author = {LeCun, Yann and Bottou, L??on and Bengio, Yoshua and Haffner, Patrick},
+  title = {Gradient-based learning applied to document recognition},
+  journal = {Proceedings of the IEEE},
+  publisher = {IEEE},
+  year = {1998},
+  volume = {86},
+  number = {11},
+  pages = {2278--2323},
+  doi = {http://doi.org/10.1109/5.726791}
+}
+</pre></td>
+</tr>
+<tr id="FarshidPirahanSiah" class="entry">
+	<td>Farshid PirahanSiah, M.S.</td>
+	<td>GSFT-PSNR: Global Single Fuzzy Threshold Based on PSNR for OCR Systems <p class="infolinks">[<a href="javascript:toggleInfo('FarshidPirahanSiah','bibtex')">BibTeX</a>]</p></td>
+	<td></td>
+	<td><br/>Vol. 4(6), pp. 1-19&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_FarshidPirahanSiah" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{FarshidPirahanSiah,
+  author = {Farshid PirahanSiah, Mohammad Shahverdy},
+  title = {GSFT-PSNR: Global Single Fuzzy Threshold Based on PSNR for OCR Systems},
+  publisher = {International journal of Computer Science and Network Solutions (IJCSNS)},
+  volume = {4},
+  number = {6},
+  pages = {1--19}
+}
+</pre></td>
+</tr>
+<tr id="Cheung2011" class="entry">
+	<td>Cheung, B. and Sable, C.</td>
+	<td>Hybrid evolution of convolutional networks <p class="infolinks">[<a href="javascript:toggleInfo('Cheung2011','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Cheung2011','bibtex')">BibTeX</a>]</p></td>
+	<td>2011</td>
+	<td><br/>Vol. 1Proceedings - 10th International Conference on Machine Learning and Applications, ICMLA 2011, pp. 293-297&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1109/ICMLA.2011.73">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Cheung2011" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: With the increasing trend of neural network models towards larger structures with more layers, we expect a corresponding exponential increase in the number of possible architectures. In this paper, we apply a hybrid evolutionary search procedure to define the initialization and architectural parameters of convolutional networks, one of the first successful deep network models. We make use of stochastic diagonal Levenberg-Marquardt to accelerate the convergence of training, lowering the time cost of fitness evaluation. Using parameters found from the evolutionary search together with absolute value and local contrast normalization preprocessing between layers, we achieve the best known performance on several of the MNIST Variations, rectangles-image and convex image datasets.</td>
+</tr>
+<tr id="bib_Cheung2011" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Cheung2011,
+  author = {Cheung, Brian and Sable, Carl},
+  title = {Hybrid evolution of convolutional networks},
+  booktitle = {Proceedings - 10th International Conference on Machine Learning and Applications, ICMLA 2011},
+  year = {2011},
+  volume = {1},
+  pages = {293--297},
+  doi = {http://doi.org/10.1109/ICMLA.2011.73}
+}
+</pre></td>
+</tr>
+<tr id="Kwak2014" class="entry">
+	<td>Kwak, H.J. and Park, G.T.</td>
+	<td>Image contrast enhancement for intelligent surveillance systems using multi-local histogram transformation <p class="infolinks">[<a href="javascript:toggleInfo('Kwak2014','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Kwak2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>Journal of Intelligent Manufacturing<br/>Vol. 25(2), pp. 303-318&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1007/s10845-012-0663-4">DOI</a> <a href="http://dx.doi.org/10.1007/s10845-012-0663-4">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Kwak2014" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Among all applications to monitor the safety and security of working environments, surveillance systems that use computer vision are the most efficient and intuitive in the manufacturing industry. This paper introduces a new technique of contrast enhancement for surveillance systems using computer vision. The histogram equalization method is a common and widespread image enhancement method which maximizes the contrast of the image. This contrast enhancement method usually improves the quality of images, but it can suffer from visual deterioration caused by excessive histogram modification. To overcome the limitations of conventional contrast enhancement methods, this paper introduces a new multi-local histogram transformation method for surveillance systems. This technique is based on the local histograms, which are separated from the overall histogram of the image, and the contrast of the image can be enhanced through two major processes: range reassignment of local histograms and local histogram equalization. The multi-local histogram transformation in this paper enhances the contrast of images, preventing excessive compression and extension of image histograms. The performance of the suggested contrast enhancement method is verified by the experiments in four different environments.</td>
+</tr>
+<tr id="bib_Kwak2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Kwak2014,
+  author = {Kwak, Hwan Joo and Park, Gwi Tae},
+  title = {Image contrast enhancement for intelligent surveillance systems using multi-local histogram transformation},
+  journal = {Journal of Intelligent Manufacturing},
+  year = {2014},
+  volume = {25},
+  number = {2},
+  pages = {303--318},
+  url = {http://dx.doi.org/10.1007/s10845-012-0663-4},
+  doi = {http://doi.org/10.1007/s10845-012-0663-4}
+}
+</pre></td>
+</tr>
+<tr id="Alex2012" class="entry">
+	<td>Alex, K., Sutskever, I. and Hinton, G.E.</td>
+	<td>Imagenet classification with deep convolutional neural networks <p class="infolinks">[<a href="javascript:toggleInfo('Alex2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>Neural Information Processing Systems (NIPS), pp. 1097-1105&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks.pdf">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_Alex2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Alex2012,
+  author = {Alex, Krizhevsky and Sutskever, Ilya and Hinton, Geoffrey E.},
+  title = {Imagenet classification with deep convolutional neural networks},
+  booktitle = {Neural Information Processing Systems (NIPS)},
+  year = {2012},
+  pages = {1097--1105},
+  url = {http://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks.pdf}
+}
+</pre></td>
+</tr>
+<tr id="Krizhevsky2012" class="entry">
+	<td>Krizhevsky, A., Sutskever, I. and Hinton, G.E.</td>
+	<td>ImageNet Classification with Deep Convolutional Neural Networks <p class="infolinks">[<a href="javascript:toggleInfo('Krizhevsky2012','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Krizhevsky2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>Advances In Neural Information Processing Systems<br/>Vol. 22(1), pp. 1-9&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1016/j.protcy.2014.09.007">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Krizhevsky2012" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: We trained a large, deep convolutional neural network to classify the 1.2 million high-resolution images in the ImageNet LSRVRC-2010 contest into the 1000 different classes. On the test data, we achieved top-1 and top-5 error rates of 37.5&percnt; and 17.0&percnt; which is considerably better than the previous state of the art. The neural network, which has 60 million paramters and 650,000 neurons, consists of five convolutional layers, some of which are followed by max-pooling layers, and three fully connected layers with a final 1000-way softmax. To make training faster, we used non-saturating neurons and a very efficient GPU implementation of the convolutional operation. To reduce overfitting in the fully-connected layers, we employed a recently-developed method called 'dropout' that proved to be effective. We also entered a variant of the model in the ILSVRC-2012 competition and achievd a top-5 test error rate of 15.3&percnt;, compared to 26.2&percnt; achieved by the second-best entry.</td>
+</tr>
+<tr id="bib_Krizhevsky2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Krizhevsky2012,
+  author = {Krizhevsky, Alex and Sutskever, Ilya and Hinton, Geoffrey E},
+  title = {ImageNet Classification with Deep Convolutional Neural Networks},
+  journal = {Advances In Neural Information Processing Systems},
+  publisher = {MIT press},
+  year = {2012},
+  volume = {22},
+  number = {1},
+  pages = {1--9},
+  doi = {http://doi.org/10.1016/j.protcy.2014.09.007}
+}
+</pre></td>
+</tr>
+<tr id="Russakovsky2015" class="entry">
+	<td>Russakovsky, O., Deng, J., Su, H., Krause, J., Satheesh, S., Ma, S., Huang, Z., Karpathy, A., Khosla, A., Bernstein, M., Berg, A.C. and Fei-Fei, L.</td>
+	<td>ImageNet Large Scale Visual Recognition Challenge <p class="infolinks">[<a href="javascript:toggleInfo('Russakovsky2015','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Russakovsky2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>International Journal of Computer Vision<br/>Vol. 115(3), pp. 211-252&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1007/s11263-015-0816-y">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Russakovsky2015" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: The ImageNet Large Scale Visual Recognition Challenge is a benchmark in object category classification and detection on hundreds of object categories and millions of images. The challenge has been run annually from 2010 to present, attracting participation from more than fifty institutions. This paper describes the creation of this benchmark dataset and the advances in object recognition that have been possible as a result. We discuss the challenges of collecting large-scale ground truth annotation, highlight key breakthroughs in categorical object recognition, provide detailed a analysis of the current state of the field of large-scale image classification and object detection, and compare the state-of-the-art computer vision accuracy with human accuracy. We conclude with lessons learned in the five years of the challenge, and propose future directions and improvements.</td>
+</tr>
+<tr id="bib_Russakovsky2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Russakovsky2015,
+  author = {Russakovsky, Olga and Deng, Jia and Su, Hao and Krause, Jonathan and Satheesh, Sanjeev and Ma, Sean and Huang, Zhiheng and Karpathy, Andrej and Khosla, Aditya and Bernstein, Michael and Berg, Alexander C. and Fei-Fei, Li},
+  title = {ImageNet Large Scale Visual Recognition Challenge},
+  journal = {International Journal of Computer Vision},
+  year = {2015},
+  volume = {115},
+  number = {3},
+  pages = {211--252},
+  doi = {http://doi.org/10.1007/s11263-015-0816-y}
+}
+</pre></td>
+</tr>
+<tr id="Nilsson1997" class="entry">
+	<td>Nilsson, N.J.</td>
+	<td>Introduction to Machine Learning <p class="infolinks">[<a href="javascript:toggleInfo('Nilsson1997','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Nilsson1997','bibtex')">BibTeX</a>]</p></td>
+	<td>1997</td>
+	<td><br/>Vol. 56(2)Neural Networks, pp. 387-99&nbsp;</td>
+	<td>misc</td>
+	<td><a href="http://doi.org/10.1016/j.neuroimage.2010.11.004">DOI</a> <a href="http://robotics.stanford.edu/{~}nilsson/mlbook.html">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Nilsson1997" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Machine learning and pattern recognition algorithms have in the past years developed to become a working horse in brain imaging and the computational neurosciences, as they are instrumental for mining vast amounts of neural data of ever increasing measurement precision and detecting minuscule signals from an overwhelming noise floor. They provide the means to decode and characterize task relevant brain states and to distinguish them from non-informative brain signals. While undoubtedly this machinery has helped to gain novel biological insights, it also holds the danger of potential unintentional abuse. Ideally machine learning techniques should be usable for any non-expert, however, unfortunately they are typically not. Overfitting and other pitfalls may occur and lead to spurious and nonsensical interpretation. The goal of this review is therefore to provide an accessible and clear introduction to the strengths and also the inherent dangers of machine learning usage in the neurosciences.</td>
+</tr>
+<tr id="bib_Nilsson1997" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{Nilsson1997,
+  author = {Nilsson, Nils J},
+  title = {Introduction to Machine Learning},
+  booktitle = {Neural Networks},
+  publisher = {MIT press},
+  year = {1997},
+  volume = {56},
+  number = {2},
+  pages = {387--99},
+  url = {http://robotics.stanford.edu/&nbsp;nilsson/mlbook.html},
+  doi = {http://doi.org/10.1016/j.neuroimage.2010.11.004}
+}
+</pre></td>
+</tr>
+<tr id="Trucco1998" class="entry">
+	<td>Trucco, E. and Alessandro, V.</td>
+	<td>Introductory Techniques for 3D Computer Vision <p class="infolinks">[<a href="javascript:toggleInfo('Trucco1998','bibtex')">BibTeX</a>]</p></td>
+	<td>1998</td>
+	<td><br/>Vol. 201Prentice-Hall.&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Trucco1998" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{Trucco1998,
+  author = {Trucco, Emanuele and Alessandro, Verri},
+  title = {Introductory Techniques for 3D Computer Vision},
+  booktitle = {Prentice-Hall.},
+  publisher = {Prentice Hall Englewood Cliffs},
+  year = {1998},
+  volume = {201}
+}
+</pre></td>
+</tr>
+<tr id="Liu2017" class="entry">
+	<td>Liu, H., Lu, J., Feng, J. and Zhou, J.</td>
+	<td>Learning Deep Sharable and Structural Detectors for Face Alignment <p class="infolinks">[<a href="javascript:toggleInfo('Liu2017','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Liu2017','bibtex')">BibTeX</a>]</p></td>
+	<td>2017</td>
+	<td>IEEE Transactions on Image Processing<br/>Vol. 26(4), pp. 1-1&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/TIP.2017.2657118">DOI</a> <a href="http://ieeexplore.ieee.org/document/7829264/">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Liu2017" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Face alignment aims at localizing multiple facial landmarks for a given facial image, which usually suffers from large variances of diverse facial expressions, aspect ratios and partial occlusions, especially when face images were captured in wild conditions. Conventional face alignment methods extract local features and then directly concatenate these features for global shape regression. Unlike these methods which cannot explicitly model the correlation of neighbouring landmarks and motivated by the fact that individual landmarks are usually correlated, we propose a deep sharable and structural detectors (DSSD) method for face alignment. To achieve this, we firstly develop a structural feature learning method to explicitly exploit the correlation of neighbouring landmarks, which learns to cover semantic information to disambiguate the neighbouring landmarks. Moreover, our model selectively learns a subset of sharable latent tasks across neighbouring landmarks under the paradigm of the multi-task learning framework, so that the redundancy information of the overlapped patches can be efficiently removed. To better improve the performance, we extend our DSSD to a recurrent DSSD (R-DSSD) architecture by integrating with the complementary information from multi-scale perspectives. Experimental results on the widely used benchmark datasets show that our methods achieve very competitive performance compared to the state-of-the-arts.</td>
+</tr>
+<tr id="bib_Liu2017" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Liu2017,
+  author = {Liu, Hao and Lu, Jiwen and Feng, Jianjiang and Zhou, Jie},
+  title = {Learning Deep Sharable and Structural Detectors for Face Alignment},
+  journal = {IEEE Transactions on Image Processing},
+  year = {2017},
+  volume = {26},
+  number = {4},
+  pages = {1--1},
+  url = {http://ieeexplore.ieee.org/document/7829264/},
+  doi = {http://doi.org/10.1109/TIP.2017.2657118}
+}
+</pre></td>
+</tr>
+<tr id="Fei-Fei2004" class="entry">
+	<td>Fei-Fei, L., Fergus, R. and Perona, P.</td>
+	<td>Learning Generative Visual Models from Few Training Examples: An Incremental Bayesian Approach Tested on 101 Object Categories <p class="infolinks">[<a href="javascript:toggleInfo('Fei-Fei2004','bibtex')">BibTeX</a>]</p></td>
+	<td>2004</td>
+	<td>Conference on Computer Vision and Pattern Recognition Workshop (CVPR 2004)<br/>Vol. 106(1), pp. 178&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/CVPR.2004.109">DOI</a> <a href="http://dx.doi.org/10.1109/CVPR.2004.109">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_Fei-Fei2004" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Fei-Fei2004,
+  author = {Fei-Fei, Li and Fergus, Rod and Perona, Pietro},
+  title = {Learning Generative Visual Models from Few Training Examples: An Incremental Bayesian Approach Tested on 101 Object Categories},
+  journal = {Conference on Computer Vision and Pattern Recognition Workshop (CVPR 2004)},
+  publisher = {Elsevier},
+  year = {2004},
+  volume = {106},
+  number = {1},
+  pages = {178},
+  url = {http://dx.doi.org/10.1109/CVPR.2004.109},
+  doi = {http://doi.org/10.1109/CVPR.2004.109}
+}
+</pre></td>
+</tr>
+<tr id="Kaehler2015" class="entry">
+	<td>Kaehler, A. and Bradski, G.</td>
+	<td>Learning OpenCV 3: Computer Vision in C++ with the OpenCV Library <p class="infolinks">[<a href="javascript:toggleInfo('Kaehler2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>, pp. 650&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Kaehler2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{Kaehler2015,
+  author = {Kaehler, Adrian and Bradski, Gary},
+  title = {Learning OpenCV 3: Computer Vision in C++ with the OpenCV Library},
+  publisher = {" OŔeilly Media, Inc." },
+  year = {2015},
+  pages = {650}
+}
+</pre></td>
+</tr>
+<tr id="Xia2016" class="entry">
+	<td>Xia, D.X., Su, S.Z., Geng, L.C., Wu, G.X. and Li, S.Z.</td>
+	<td>Learning rich features from objectness estimation for human lying-pose detection <p class="infolinks">[<a href="javascript:toggleInfo('Xia2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Xia2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>Multimedia Systems, pp. 1-12&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1007/s00530-016-0518-5">DOI</a> <a href="http://dx.doi.org/10.1007/s00530-016-0518-5">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Xia2016" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Multimedia Systems, doi:10.1007/s00530-016-0518-5</td>
+</tr>
+<tr id="bib_Xia2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Xia2016,
+  author = {Xia, Dao Xun and Su, Song Zhi and Geng, Li Chuan and Wu, Guo Xi and Li, Shao Zi},
+  title = {Learning rich features from objectness estimation for human lying-pose detection},
+  journal = {Multimedia Systems},
+  year = {2016},
+  pages = {1--12},
+  url = {http://dx.doi.org/10.1007/s00530-016-0518-5},
+  doi = {http://doi.org/10.1007/s00530-016-0518-5}
+}
+</pre></td>
+</tr>
+<tr id="Cheng2016" class="entry">
+	<td>Cheng, G., Zhou, P. and Han, J.</td>
+	<td>Learning Rotation-Invariant Convolutional Neural Networks for Object Detection in VHR Optical Remote Sensing Images <p class="infolinks">[<a href="javascript:toggleInfo('Cheng2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Cheng2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>IEEE Transactions on Geoscience and Remote Sensing<br/>Vol. PP(99), pp. 1-11&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/TGRS.2016.2601622">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Cheng2016" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Object detection in very high resolution optical remote sensing images is a fundamental problem faced for remote sensing image analysis. Due to the advances of powerful feature representations, machine-learning-based object detection is receiving increasing attention. Although numerous feature representations exist, most of them are handcrafted or shallow-learning-based features. As the object detection task becomes more challenging, their description capability becomes limited or even impoverished. More recently, deep learning algorithms, especially convolutional neural networks (CNNs), have shown their much stronger feature representation power in computer vision. Despite the progress made in nature scene images, it is problematic to directly use the CNN feature for object detection in optical remote sensing images because it is difficult to effectively deal with the problem of object rotation variations. To address this problem, this paper proposes a novel and effective approach to learn a rotation-invariant CNN (RICNN) model for advancing the performance of object detection, which is achieved by introducing and learning a new rotation-invariant layer on the basis of the existing CNN architectures. However, different from the training of traditional CNN models that only optimizes the multinomial logistic regression objective, our RICNN model is trained by optimizing a new objective function via imposing a regularization constraint, which explicitly enforces the feature representations of the training samples before and after rotating to be mapped close to each other, hence achieving rotation invariance. To facilitate training, we first train the rotation-invariant layer and then domain-specifically fine-tune the whole RICNN network to further boost the performance. Comprehensive evaluations on a publicly available ten-class object detection data set demonstrate the effectiveness of the proposed method.</td>
+</tr>
+<tr id="bib_Cheng2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Cheng2016,
+  author = {Cheng, Gong and Zhou, Peicheng and Han, Junwei},
+  title = {Learning Rotation-Invariant Convolutional Neural Networks for Object Detection in VHR Optical Remote Sensing Images},
+  journal = {IEEE Transactions on Geoscience and Remote Sensing},
+  year = {2016},
+  volume = {PP},
+  number = {99},
+  pages = {1--11},
+  doi = {http://doi.org/10.1109/TGRS.2016.2601622}
+}
+</pre></td>
+</tr>
+<tr id="Liu2016" class="entry">
+	<td>Liu, N., Han, J., Liu, T. and Li, X.</td>
+	<td>Learning to Predict Eye Fixations via Multiresolution Convolutional Neural Networks <p class="infolinks">[<a href="javascript:toggleInfo('Liu2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Liu2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>IEEE Transactions on Neural Networks and Learning Systems<br/>Vol. PP(99), pp. 1-13&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/TNNLS.2016.2628878">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Liu2016" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Eye movements in the case of freely viewing natural scenes are believed to be guided by local contrast, global contrast, and top-down visual factors. Although a lot of previous works have explored these three saliency cues for several years, there still exists much room for improvement on how to model them and integrate them effectively. This paper proposes a novel computation model to predict eye fixations, which adopts a multiresolution convolutional neural network (Mr-CNN) to infer these three types of saliency cues from raw image data simultaneously. The proposed Mr-CNN is trained directly from fixation and nonfixation pixels with multiresolution input image regions with different contexts. It utilizes image pixels as inputs and eye fixation points as labels. Then, both the local and global contrasts are learned by fusing information in multiple contexts. Meanwhile, various top-down factors are learned in higher layers. Finally, optimal combination of top-down factors and bottom-up contrasts can be learned to predict eye fixations. The proposed approach significantly outperforms the state-of-the-art methods on several publically available benchmark databases, demonstrating the superiority of Mr-CNN. We also apply our method to the RGB-D image saliency detection problem. Through learning saliency cues induced by depth and RGB information on pixel level jointly and their interactions, our model achieves better performance on predicting eye fixations in RGB-D images.</td>
+</tr>
+<tr id="bib_Liu2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Liu2016,
+  author = {N. Liu and J. Han and T. Liu and X. Li},
+  title = {Learning to Predict Eye Fixations via Multiresolution Convolutional Neural Networks},
+  journal = {IEEE Transactions on Neural Networks and Learning Systems},
+  year = {2016},
+  volume = {PP},
+  number = {99},
+  pages = {1-13},
+  doi = {http://doi.org/10.1109/TNNLS.2016.2628878}
+}
+</pre></td>
+</tr>
+<tr id="Ghesu2016" class="entry">
+	<td>Ghesu, F.C., Krubasik, E., Georgescu, B., Singh, V., Zheng, Y., Hornegger, J. and Comaniciu, D.</td>
+	<td>Marginal Space Deep Learning: Efficient Architecture for Volumetric Image Parsing <p class="infolinks">[<a href="javascript:toggleInfo('Ghesu2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Ghesu2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>IEEE Transactions on Medical Imaging<br/>Vol. 35(5), pp. 1217-1228&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/TMI.2016.2538802">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Ghesu2016" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Conference proceddings</td>
+</tr>
+<tr id="bib_Ghesu2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Ghesu2016,
+  author = {Ghesu, Florin C. and Krubasik, Edward and Georgescu, Bogdan and Singh, Vivek and Zheng, Yefeng and Hornegger, Joachim and Comaniciu, Dorin},
+  title = {Marginal Space Deep Learning: Efficient Architecture for Volumetric Image Parsing},
+  journal = {IEEE Transactions on Medical Imaging},
+  year = {2016},
+  volume = {35},
+  number = {5},
+  pages = {1217--1228},
+  doi = {http://doi.org/10.1109/TMI.2016.2538802}
+}
+</pre></td>
+</tr>
+<tr id="Schmidhuber2012" class="entry">
+	<td>Schmidhuber, J.</td>
+	<td>Multi-column deep neural networks for image classification <p class="infolinks">[<a href="javascript:toggleInfo('Schmidhuber2012','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Schmidhuber2012','bibtex')">BibTeX</a>]</p></td>
+	<td>2012</td>
+	<td>IEEE Conference on Computer Vision and Pattern Recognition (CVPR),, pp. 3642-3649&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/CVPR.2012.6248110">DOI</a> <a href="http://dl.acm.org/citation.cfm?id=2354409.2354694">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Schmidhuber2012" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Traditional methods of computer vision and machine learning cannot match human performance on tasks such as the recognition of handwritten digits or traffic signs. Our biologically plausible, wide and deep artificial neural network architectures can. Small (often minimal) receptive fields of convolutional winner-take-all neurons yield large network depth, resulting in roughly as many sparsely connected neural layers as found in mammals between retina and visual cortex. Only winner neurons are trained. Several deep neural columns become experts on inputs preprocessed in different ways; their predictions are averaged. Graphics cards allow for fast training. On the very competitive MNIST handwriting benchmark, our method is the first to achieve near-human performance. On a traffic sign recognition benchmark it outperforms humans by a factor of two. We also improve the state-of-the-art on a plethora of common image classification benchmarks</td>
+</tr>
+<tr id="bib_Schmidhuber2012" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Schmidhuber2012,
+  author = {Schmidhuber, Jurgen},
+  title = {Multi-column deep neural networks for image classification},
+  journal = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR),},
+  year = {2012},
+  pages = {3642--3649},
+  url = {http://dl.acm.org/citation.cfm?id=2354409.2354694},
+  doi = {http://doi.org/10.1109/CVPR.2012.6248110}
+}
+</pre></td>
+</tr>
+<tr id="Davtalab2014" class="entry">
+	<td>Davtalab, R., Dezfoulian, M.H. and Mansoorizadeh, M.</td>
+	<td>Multi-Level Fuzzy Min-Max Neural Network Classifier <p class="infolinks">[<a href="javascript:toggleInfo('Davtalab2014','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Davtalab2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>IEEE Transactions on Neural Networks and Learning Systems<br/>Vol. 25(3), pp. 470-482&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="abs_Davtalab2014" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: In this paper a multi-level fuzzy min-max neural network classifier (MLF), which is a supervised learning method, is described. MLF uses basic concepts of the fuzzy min-max (FMM) method in a multi-level structure to classify patterns. This method uses separate classifiers with smaller hyperboxes in different levels to classify the samples that are located in overlapping regions. The final output of the network is formed by combining the outputs of these classifiers. MLF is capable of learning nonlinear boundaries with a single pass through the data. According to the obtained results, the MLF method, compared to the other FMM networks, has the highest performance and the lowest sensitivity to maximum size of the hyperbox parameter (&theta;), with a training accuracy of 100&percnt; in most cases.</td>
+</tr>
+<tr id="bib_Davtalab2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Davtalab2014,
+  author = {Davtalab, R and Dezfoulian, M H and Mansoorizadeh, M},
+  title = {Multi-Level Fuzzy Min-Max Neural Network Classifier},
+  journal = {IEEE Transactions on Neural Networks and Learning Systems},
+  year = {2014},
+  volume = {25},
+  number = {3},
+  pages = {470--482}
+}
+</pre></td>
+</tr>
+<tr id="Abdullah2010a" class="entry">
+	<td>Abdullah, S.N.H.S., PirahanSiah, F., Zainal Abidin, N.H. and Sahran, S.</td>
+	<td>Multi-threshold approach for license plate recognition system <p class="infolinks">[<a href="javascript:toggleInfo('Abdullah2010a','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Abdullah2010a','bibtex')">BibTeX</a>]</p></td>
+	<td>2010</td>
+	<td>International Conference on Signal and Image Processing WASET Singapore August 25-27, 2010 ICSIP 2010, pp. 1046-1050&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://www.waset.org/journals/waset/v72/v72-146.pdf">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Abdullah2010a" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: The objective of this paper is to propose an adaptive multi threshold for image segmentation precisely in object detection. Due to the different types of license plates being used, the requirement of an automatic LPR is rather different for each country. The proposed technique is applied on Malaysian LPR application. It is based on Multi Layer Perceptron trained by back propagation. The proposed adaptive threshold is introduced to find the optimum threshold values. The technique relies on the peak value from the graph of the number object versus specific range of threshold values. That proposed approach has actually increased the overall performance compared to current optimal threshold techniques. Further improvement on this method is in progress to accommodate real time system specification.</td>
+</tr>
+<tr id="bib_Abdullah2010a" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Abdullah2010a,
+  author = {Abdullah, Siti Norul Huda Sheikh and PirahanSiah, Farshid and Zainal Abidin, Nur Hanisah and Sahran, Shahnorbanun},
+  title = {Multi-threshold approach for license plate recognition system},
+  booktitle = {International Conference on Signal and Image Processing WASET Singapore August 25-27, 2010 ICSIP 2010},
+  year = {2010},
+  pages = {1046--1050},
+  url = {http://www.waset.org/journals/waset/v72/v72-146.pdf}
+}
+</pre></td>
+</tr>
+<tr id="Rowley1998" class="entry">
+	<td>Rowley, H.A., Baluja, S. and Kanade, T.</td>
+	<td>Neural network-based face detection <p class="infolinks">[<a href="javascript:toggleInfo('Rowley1998','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Rowley1998','bibtex')">BibTeX</a>]</p></td>
+	<td>1998</td>
+	<td>IEEE Transactions on Pattern Analysis and Machine Intelligence<br/>Vol. 20(1), pp. 23-38&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/34.655647">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Rowley1998" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: idsia</td>
+</tr>
+<tr id="bib_Rowley1998" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Rowley1998,
+  author = {Rowley, Henry A. and Baluja, Shumeet and Kanade, Takeo},
+  title = {Neural network-based face detection},
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  year = {1998},
+  volume = {20},
+  number = {1},
+  pages = {23--38},
+  doi = {http://doi.org/10.1109/34.655647}
+}
+</pre></td>
+</tr>
+<tr id="Sinha2014" class="entry">
+	<td>Sinha, A., Banerji, S. and Liu, C.</td>
+	<td>New color GPHOG descriptors for object and scene image classification <p class="infolinks">[<a href="javascript:toggleInfo('Sinha2014','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Sinha2014','bibtex')">BibTeX</a>]</p></td>
+	<td>2014</td>
+	<td>Machine Vision and Applications<br/>Vol. 25(2), pp. 361-375&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1007/s00138-013-0561-6">DOI</a> <a href="http://dx.doi.org/10.1007/s00138-013-0561-6">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Sinha2014" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This paper presents a novel set of image descriptors that encodes information from color, shape, spatial and local features of an image to improve upon the popular Pyramid of Histograms of Oriented Gradients (PHOG) descriptor for object and scene image classification. In particular, a new Gabor-PHOG (GPHOG) image descriptor created by enhancing the local features of an image using multiple Gabor filters is first introduced for feature extraction. Second, a comparative assessment of the classification performance of the GPHOG descriptor is made in grayscale and six different color spaces to further propose two novel color GPHOG descriptors that perform well on different object and scene image categories. Finally, an innovative Fused Color GPHOG (FC--GPHOG) descriptor is presented by integrating the Principal Component Analysis (PCA) features of the GPHOG descriptors in the six color spaces to combine color, shape and local feature information. Feature extraction for the proposed descriptors employs PCA and Enhanced Fisher Model (EFM), and the nearest neighbor rule is used for final classification. Experimental results using the MIT Scene dataset and the Caltech 256 object categories dataset show that the proposed new FC--GPHOG descriptor achieves a classification performance better than or comparable to other popular image descriptors, such as the Scale Invariant Feature Transform (SIFT) based Pyramid Histograms of visual Words descriptor, Color SIFT four Concentric Circles, Spatial Envelope, and Local Binary Patterns.</td>
+</tr>
+<tr id="bib_Sinha2014" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Sinha2014,
+  author = {Sinha, Atreyee and Banerji, Sugata and Liu, Chengjun},
+  title = {New color GPHOG descriptors for object and scene image classification},
+  journal = {Machine Vision and Applications},
+  year = {2014},
+  volume = {25},
+  number = {2},
+  pages = {361--375},
+  url = {http://dx.doi.org/10.1007/s00138-013-0561-6},
+  doi = {http://doi.org/10.1007/s00138-013-0561-6}
+}
+</pre></td>
+</tr>
+<tr id="Yoshioka2016" class="entry">
+	<td>Yoshioka, T., Ohnishi, K., Fang, F. and Nakatani, T.</td>
+	<td>Noise robust speech recognition using recent developments in neural networks for computer vision <p class="infolinks">[<a href="javascript:toggleInfo('Yoshioka2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Yoshioka2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>2016 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), pp. 5730-5734&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1109/ICASSP.2016.7472775">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Yoshioka2016" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Convolutional Neural Networks (CNNs) are superior to fully connected neural networks in various speech recognition tasks and the advantage is pronounced in noisy environments. In recent years, many techniques have been proposed in the computer vision community to improve CNN's classification performance. This paper considers two approaches recently developed for image classification and examines their impacts on noisy speech recognition performance. The first approach is to increase the depth of convolution layers. Different approaches to deepening the CNNs are compared. In particular, the usefulness of learning dynamic features with small convolution layers that perform convolution in time is shown along with a modulation frequency analysis of the learned convolution filters. The second approach is to use trainable activation functions. Specifically, the use of a Parametric Rectified Linear Unit (PReLU) is investigated. Experimental results show that both approaches yield significant improvements in performance. Combining the two approaches further reduces recognition errors, producing a word error rate of 11.1&percnt; in the Aurora4 task, the best published result for this corpus, with a standard one-pass bi-gram decoding set-up.</td>
+</tr>
+<tr id="bib_Yoshioka2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Yoshioka2016,
+  author = {Yoshioka, T and Ohnishi, K and Fang, F and Nakatani, T},
+  title = {Noise robust speech recognition using recent developments in neural networks for computer vision},
+  booktitle = {2016 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
+  year = {2016},
+  pages = {5730--5734},
+  doi = {http://doi.org/10.1109/ICASSP.2016.7472775}
+}
+</pre></td>
+</tr>
+<tr id="Elgammal2000" class="entry">
+	<td>Elgammal, A., Harwood, D. and Davis, L.</td>
+	<td>Non-parametric model for background subtraction <p class="infolinks">[<a href="javascript:toggleInfo('Elgammal2000','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Elgammal2000','bibtex')">BibTeX</a>]</p></td>
+	<td>2000</td>
+	<td><br/>Vol. 1843Computer Vision—ECCV 2000, pp. 751-767&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1007/3-540-45053">DOI</a> <a href="http://www.springerlink.com/index/3mcvhnwfa8bj4ln5.pdf{\%}5Cnhttp://link.springer.com/chapter/10.1007/3-540-45053-X{\_}48">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Elgammal2000" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Background subtraction is a method typically used to segment moving regions in image sequences taken from a static camera by comparing each new frame to a model of the scene background. We present a novel non-parametric background model and a background subtraction approach. The model can handle situations where the background of the scene is cluttered and not completely static but contains small motions such as tree branches and bushes. The model estimates the probability of observing pixel intensity values based on a sample of intensity values for each pixel. The model adapts quickly to changes in the scene which enables very sensitive detection of moving targets. We also show how the model can use color information to suppress detection of shadows. The implementation of the model runs in real-time for both gray level and color imagery. Evaluation shows that this approach achieves very sensitive detection with very low false alarm rates.</td>
+</tr>
+<tr id="bib_Elgammal2000" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Elgammal2000,
+  author = {Elgammal, Ahmed and Harwood, David and Davis, Larry},
+  title = {Non-parametric model for background subtraction},
+  booktitle = {Computer Vision—ECCV 2000},
+  year = {2000},
+  volume = {1843},
+  pages = {751--767},
+  url = {http://www.springerlink.com/index/3mcvhnwfa8bj4ln5.pdf&percnt;5Cnhttp://link.springer.com/chapter/10.1007/3-540-45053-X48},
+  doi = {http://doi.org/10.1007/3-540-45053}
+}
+</pre></td>
+</tr>
+<tr id="Lowe1999" class="entry">
+	<td>Lowe, D.G.</td>
+	<td>Object recognition from local scale-invariant features <p class="infolinks">[<a href="javascript:toggleInfo('Lowe1999','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Lowe1999','bibtex')">BibTeX</a>]</p></td>
+	<td>1999</td>
+	<td><br/>Vol. 2([8)Proceedings of the Seventh IEEE International Conference on Computer Vision, pp. 1150-1157&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1109/ICCV.1999.790410">DOI</a> <a href="http://ieeexplore.ieee.org/lpdocs/epic03/wrapper.htm?arnumber=790410">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Lowe1999" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: An object recognition system has been developed that uses a new class of local image features. The features are invariant to image scaling, translation, and rotation, and partially invariant to illumination changes and affine or 3D projection. These features share similar properties with neurons in inferior temporal cortex that are used for object recognition in primate vision. Features are efficiently detected through a staged filtering approach that identifies stable points in scale space. Image keys are created that allow for local geometric deformations by representing blurred image gradients in multiple orientation planes and at multiple scales. The keys are used as input to a nearest neighbor indexing method that identifies candidate object matches. Final verification of each match is achieved by finding a low residual least squares solution for the unknown model parameters. Experimental results show that robust object recognition can be achieved in cluttered partially occluded images with a computation time of under 2 seconds</td>
+</tr>
+<tr id="bib_Lowe1999" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Lowe1999,
+  author = {Lowe, David G.},
+  title = {Object recognition from local scale-invariant features},
+  booktitle = {Proceedings of the Seventh IEEE International Conference on Computer Vision},
+  year = {1999},
+  volume = {2},
+  number = {[8},
+  pages = {1150--1157},
+  url = {http://ieeexplore.ieee.org/lpdocs/epic03/wrapper.htm?arnumber=790410},
+  doi = {http://doi.org/10.1109/ICCV.1999.790410}
+}
+</pre></td>
+</tr>
+<tr id="Krasin2016" class="entry">
+	<td>Krasin, I., Duerig, T., Alldrin, N., Veit, A., Abu-El-Haija, S., Belongie, S., Cai, D., Feng, Z., Ferrari, V., Gomes, V., Gupta, A., Narayanan, D., Sun, C., Chechik, G. and Murphy, K.</td>
+	<td>OpenImages: A public dataset for large-scale multi-label and multi-class image classification. <p class="infolinks">[<a href="javascript:toggleInfo('Krasin2016','bibtex')">BibTeX</a>]</p></td>
+	<td>2016</td>
+	<td>Dataset available from https://github.com/openimages&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Krasin2016" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Krasin2016,
+  author = {Krasin, Ivan and Duerig, Tom and Alldrin, Neil and Veit, Andreas and Abu-El-Haija, Sami and Belongie, Serge and Cai, David and Feng, Zheyun and Ferrari, Vittorio and Gomes, Victor and Gupta, Abhinav and Narayanan, Dhyanesh and Sun, Chen and Chechik, Gal and Murphy, Kevin},
+  title = {OpenImages: A public dataset for large-scale multi-label and multi-class image classification.},
+  journal = {Dataset available from https://github.com/openimages},
+  year = {2016}
+}
+</pre></td>
+</tr>
+<tr id="Duda2001" class="entry">
+	<td>Duda, R.O., Hart, P.E. and Stork, D.G.</td>
+	<td>Pattern Classification <p class="infolinks">[<a href="javascript:toggleInfo('Duda2001','bibtex')">BibTeX</a>]</p></td>
+	<td>2001</td>
+	<td>&nbsp;</td>
+	<td>book</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Duda2001" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@book{Duda2001,
+  author = {Duda, Richard O and Hart, Perter E and Stork, David G},
+  title = {Pattern Classification},
+  publisher = {John Wiley &amp; Sons },
+  year = {2001}
+}
+</pre></td>
+</tr>
+<tr id="Pirahansiah2013a" class="entry">
+	<td>Pirahansiah, F., Abdullah, S.N.H.S. and Sahran, S.</td>
+	<td>Peak signal-to-noise ratio based on threshold method for image segmentation <p class="infolinks">[<a href="javascript:toggleInfo('Pirahansiah2013a','bibtex')">BibTeX</a>]</p></td>
+	<td>2013</td>
+	<td>Journal of Theoretical and Applied Information Technology<br/>Vol. 57(2), pp. 158-168&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Pirahansiah2013a" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Pirahansiah2013a,
+  author = {Pirahansiah, Farshid and Abdullah, Siti Norul Huda Sheikh and Sahran, Shahnorbanun},
+  title = {Peak signal-to-noise ratio based on threshold method for image segmentation},
+  journal = {Journal of Theoretical and Applied Information Technology},
+  publisher = {www.jatit.org/volumes/Vol57No2/4Vol57No2.pdf},
+  year = {2013},
+  volume = {57},
+  number = {2},
+  pages = {158--168}
+}
+</pre></td>
+</tr>
+<tr id="Snavely2006" class="entry">
+	<td>Snavely, N., Seitz, S.M. and Szeliski, R.</td>
+	<td>Photo tourism: Exploring Photo Collections in 3D <p class="infolinks">[<a href="javascript:toggleInfo('Snavely2006','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Snavely2006','bibtex')">BibTeX</a>]</p></td>
+	<td>2006</td>
+	<td><br/>Vol. 25(3)ACM Transactions on Graphics, pp. 835-846&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1145/1141911.1141964">DOI</a> <a href="http://doi.acm.org/10.1145/1141911.1141964{\%}5Cnhttp://portal.acm.org/citation.cfm?doid=1141911.1141964">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Snavely2006" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: We present a system for interactively browsing and exploring large unstructured collections of photographs of a scene using a novel 3D interface. Our system consists of an image-based modeling front end that automatically computes the viewpoint of each photograph as well as a sparse 3D model of the scene and image to model correspondences. Our photo explorer uses image-based rendering techniques to smoothly transition between photographs, while also enabling full 3D navigation and exploration of the set of images and world geometry, along with auxiliary information such as overhead maps. Our system also makes it easy to construct photo tours of scenic or historic locations, and to annotate image details, which are automatically transferred to other relevant images. We demonstrate our system on several large personal photo collections as well as images gathered from Internet photo sharing sites.</td>
+</tr>
+<tr id="bib_Snavely2006" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Snavely2006,
+  author = {Snavely, Noah and Seitz, Steven M and Szeliski, Richard},
+  title = {Photo tourism: Exploring Photo Collections in 3D},
+  booktitle = {ACM Transactions on Graphics},
+  year = {2006},
+  volume = {25},
+  number = {3},
+  pages = {835--846},
+  url = {http://doi.acm.org/10.1145/1141911.1141964&percnt;5Cnhttp://portal.acm.org/citation.cfm?doid=1141911.1141964},
+  doi = {http://doi.org/10.1145/1141911.1141964}
+}
+</pre></td>
+</tr>
+<tr id="Koller2009" class="entry">
+	<td>Koller, D. and Friedman, N.</td>
+	<td>Probabilistic graphical models: principles and techniques <p class="infolinks">[<a href="javascript:toggleInfo('Koller2009','bibtex')">BibTeX</a>]</p></td>
+	<td>2009</td>
+	<td>Citeseer&nbsp;</td>
+	<td>misc</td>
+	<td><a href="http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.404.3622{\&}rep=rep1{\&}type=pdf{\%}5Cnhttp://books.google.com/books?hl=en{\&}lr={\&}id=7dzpHCHzNQ4C{\&}oi=fnd{\&}pg=PR9{\&}dq=Probabilistic+graphical+models+principles+and+techniques{\&}ots=pu7FAm4{\_}tQ{\&}sig=i3UYsiOk3mjRASsvTV78a8gPeP8">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_Koller2009" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{Koller2009,
+  author = {Koller, D and Friedman, N},
+  title = {Probabilistic graphical models: principles and techniques},
+  booktitle = {Citeseer},
+  publisher = {MIT press},
+  year = {2009},
+  url = {http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.404.3622&amp;rep=rep1&amp;type=pdf&percnt;5Cnhttp://books.google.com/books?hl=en&amp;lr=&amp;id=7dzpHCHzNQ4C&amp;oi=fnd&amp;pg=PR9&amp;dq=Probabilistic+graphical+models+principles+and+techniques&amp;ots=pu7FAm4tQ&amp;sig=i3UYsiOk3mjRASsvTV78a8gPeP8}
+}
+</pre></td>
+</tr>
+<tr id="Thrun2005" class="entry">
+	<td>Thrun, S., Burgard, W. and Fox, D.</td>
+	<td>Probabilistic robotics <p class="infolinks">[<a href="javascript:toggleInfo('Thrun2005','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Thrun2005','bibtex')">BibTeX</a>]</p></td>
+	<td>2005</td>
+	<td>Intelligent robotics and autonomous agents; Variation: Intelligent robotics and autonomous agents., pp. 647&nbsp;</td>
+	<td>misc</td>
+	<td><a href="http://doi.org/10.1145/504729.504754">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Thrun2005" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Probablistic robotics is a growing area in the subject, concerned with perception and control in the face of uncertainty and giving robots a level of robustness in real-world situations. This book introduces techniques and algorithms in the field.; Recursive state estimation -- Gaussian filters -- Robot motion -- Robot perception -- Mobile robot localization : Markov and Gaussian -- Mobile robot localization : grid and Monte Carlo -- Occupancy grid mapping -- Simultaneous localization and mapping -- The graphSLAM algorithm -- The sparse extended information filter -- The fastSLAM algorithm -- Markov decision processes -- Partially observable Markov decision processes -- Approximate POMDP techniques -- Exploration.</td>
+</tr>
+<tr id="bib_Thrun2005" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{Thrun2005,
+  author = {Thrun, Sebastian and Burgard, Wolfram and Fox, Dieter},
+  title = {Probabilistic robotics},
+  booktitle = {Intelligent robotics and autonomous agents; Variation: Intelligent robotics and autonomous agents.},
+  publisher = {MIT Press},
+  year = {2005},
+  pages = {647},
+  doi = {http://doi.org/10.1145/504729.504754}
+}
+</pre></td>
+</tr>
+<tr id="Viola2001" class="entry">
+	<td>Viola, P. and Jones, M.</td>
+	<td>Rapid object detection using a boosted cascade of simple features <p class="infolinks">[<a href="javascript:toggleInfo('Viola2001','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Viola2001','bibtex')">BibTeX</a>]</p></td>
+	<td>2001</td>
+	<td><br/>Vol. 1Computer Vision and Pattern Recognition (CVPR), pp. I--511--I--518&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1109/CVPR.2001.990517">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Viola2001" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This paper describes a machine learning approach for visual object detection which is capable of processing images extremely rapidly and achieving high detection rates. This work is distinguished by three key contributions. The first is the introduction of a new image representation called the "integral image" which allows the features used by our detector to be computed very quickly. The second is a learning algorithm, based on AdaBoost, which selects a small number of critical visual features from a larger set and yields extremely efficient classifiers. The third contribution is a method for combining increasingly more complex classifiers in a "cascade" which allows background regions of the image to be quickly discarded while spending more computation on promising object-like regions. The cascade can be viewed as an object specific focus-of-attention mechanism which unlike previous approaches provides statistical guarantees that discarded regions are unlikely to contain the object of interest. In the domain of face detection the system yields detection rates comparable to the best previous systems. Used in real-time applications, the detector runs at 15 frames per second without resorting to image differencing or skin color detection.</td>
+</tr>
+<tr id="bib_Viola2001" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Viola2001,
+  author = {Viola, P and Jones, M},
+  title = {Rapid object detection using a boosted cascade of simple features},
+  booktitle = {Computer Vision and Pattern Recognition (CVPR)},
+  year = {2001},
+  volume = {1},
+  pages = {I----511----I----518},
+  doi = {http://doi.org/10.1109/CVPR.2001.990517}
+}
+</pre></td>
+</tr>
+<tr id="Bengio2013" class="entry">
+	<td>Bengio, Y., Courville, A. and Vincent, P.</td>
+	<td>Representation Learning: A Review and New Perspectives. <p class="infolinks">[<a href="javascript:toggleInfo('Bengio2013','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Bengio2013','bibtex')">BibTeX</a>]</p></td>
+	<td>2013</td>
+	<td>Tpami<br/>Vol. 35(1993), pp. 1-30&nbsp;</td>
+	<td>article</td>
+	<td><a href="3C2DBCEE-8A96-493B-B88B-36B1F52ECA58">DOI</a> <a href="http://arxiv.org/abs/1206.5538{\%}5Cnhttp://www.ncbi.nlm.nih.gov/pubmed/23459267">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Bengio2013" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: The success of machine learning algorithms generally depends on data representation, and we hypothesize that this is because different representations can entangle and hide more or less the different explanatory factors of variation behind the data. Although specific domain knowledge can be used to help design representations, learning with generic priors can also be used, and the quest for AI is motivating the design of more powerful representation-learning algorithms implementing such priors. This paper reviews recent work in the area of unsupervised feature learning and deep learning, covering advances in probabilistic models, auto-encoders, manifold learning, and deep networks. This motivates longer-term unanswered questions about the appropriate objectives for learning good representations, for computing representations (i.e., inference), and the geometrical connections between representation learning, density estimation and manifold learning.</td>
+</tr>
+<tr id="bib_Bengio2013" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Bengio2013,
+  author = {Bengio, Yoshua and Courville, Aaron and Vincent, Pascal},
+  title = {Representation Learning: A Review and New Perspectives.},
+  journal = {Tpami},
+  year = {2013},
+  volume = {35},
+  number = {1993},
+  pages = {1--30},
+  url = {http://arxiv.org/abs/1206.5538&percnt;5Cnhttp://www.ncbi.nlm.nih.gov/pubmed/23459267},
+  doi = {3C2DBCEE-8A96-493B-B88B-36B1F52ECA58}
+}
+</pre></td>
+</tr>
+<tr id="Perona1990" class="entry">
+	<td>Perona, P. and Malik, J.</td>
+	<td>Scale-Space and Edge Detection Using Anisotropic Diffusion <p class="infolinks">[<a href="javascript:toggleInfo('Perona1990','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Perona1990','bibtex')">BibTeX</a>]</p></td>
+	<td>1990</td>
+	<td>IEEE Transactions on Pattern Analysis and Machine Intelligence<br/>Vol. 12(7), pp. 629-639&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/34.56205">DOI</a> <a href="http://ieeexplore.ieee.org/lpdocs/epic03/wrapper.htm?arnumber=56205">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Perona1990" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: A new definition of scale-space is suggested, and a class of algorithms used to realize a diffusion process is introduced. The diffusion coefficient is chosen to vary spatially in such a way as to encourage intraregion smoothing rather than interregion smoothing. It is shown that the 'no new maxima should be generated at coarse scales' property of conventional scale space is preserved. As the region boundaries in our approach remain sharp, a high-quality edge detector which successfully exploits global information is obtained. Experimental results are shown on a number of images. Parallel hardware implementations are made feasible because the algorithm involves elementary, local operations replicated over the image.</td>
+</tr>
+<tr id="bib_Perona1990" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Perona1990,
+  author = {Perona, Pietro and Malik, Jitendra},
+  title = {Scale-Space and Edge Detection Using Anisotropic Diffusion},
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  year = {1990},
+  volume = {12},
+  number = {7},
+  pages = {629--639},
+  url = {http://ieeexplore.ieee.org/lpdocs/epic03/wrapper.htm?arnumber=56205},
+  doi = {http://doi.org/10.1109/34.56205}
+}
+</pre></td>
+</tr>
+<tr id="Pirahansiah2013" class="entry">
+	<td>Pirahansiah, F., Norul, S., Sheikh, H. and Sahran, S.</td>
+	<td>Simultaneous Localization and Mapping Trends and Humanoid Robot Linkages <p class="infolinks">[<a href="javascript:toggleInfo('Pirahansiah2013','bibtex')">BibTeX</a>]</p></td>
+	<td>2013</td>
+	<td><br/>Vol. 2(2), pp. 27-38&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Pirahansiah2013" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Pirahansiah2013,
+  author = {Pirahansiah, Farshid and Norul, Siti and Sheikh, Huda and Sahran, Shahnorbanun},
+  title = {Simultaneous Localization and Mapping Trends and Humanoid Robot Linkages},
+  publisher = {Penerbit Universiti Kebangsaan Malaysia},
+  year = {2013},
+  volume = {2},
+  number = {2},
+  pages = {27--38}
+}
+</pre></td>
+</tr>
+<tr id="Kass1988" class="entry">
+	<td>Kass, M., Witkin, A. and Terzopoulos, D.</td>
+	<td>Snakes: active contour model <p class="infolinks">[<a href="javascript:toggleInfo('Kass1988','bibtex')">BibTeX</a>]</p></td>
+	<td>1988</td>
+	<td>International Journal on Computer Vision<br/>Vol. 1(4), pp. 321-331&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Kass1988" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Kass1988,
+  author = {Kass, M and Witkin, A and Terzopoulos, D},
+  title = {Snakes: active contour model},
+  journal = {International Journal on Computer Vision},
+  year = {1988},
+  volume = {1},
+  number = {4},
+  pages = {321--331}
+}
+</pre></td>
+</tr>
+<tr id="Bay2008" class="entry">
+	<td>Bay, H., Ess, A., Tuytelaars, T. and Van Gool, L.</td>
+	<td>Speeded-Up Robust Features (SURF) <p class="infolinks">[<a href="javascript:toggleInfo('Bay2008','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Bay2008','bibtex')">BibTeX</a>]</p></td>
+	<td>2008</td>
+	<td>Computer Vision and Image Understanding<br/>Vol. 110(3), pp. 346-359&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1016/j.cviu.2007.09.014">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Bay2008" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: This article presents a novel scale- and rotation-invariant detector and descriptor, coined SURF (Speeded-Up Robust Features). SURF approximates or even outperforms previously proposed schemes with respect to repeatability, distinctiveness, and robustness, yet can be computed and compared much faster. This is achieved by relying on integral images for image convolutions; by building on the strengths of the leading existing detectors and descriptors (specifically, using a Hessian matrix-based measure for the detector, and a distribution-based descriptor); and by simplifying these methods to the essential. This leads to a combination of novel detection, description, and matching steps. The paper encompasses a detailed description of the detector and descriptor and then explores the effects of the most important parameters. We conclude the article with SURF's application to two challenging, yet converse goals: camera calibration as a special case of image registration, and object recognition. Our experiments underline SURF's usefulness in a broad range of topics in computer vision. ?? 2007 Elsevier Inc. All rights reserved.</td>
+</tr>
+<tr id="bib_Bay2008" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Bay2008,
+  author = {Bay, Herbert and Ess, Andreas and Tuytelaars, Tinne and Van Gool, Luc},
+  title = {Speeded-Up Robust Features (SURF)},
+  journal = {Computer Vision and Image Understanding},
+  year = {2008},
+  volume = {110},
+  number = {3},
+  pages = {346--359},
+  doi = {http://doi.org/10.1016/j.cviu.2007.09.014}
+}
+</pre></td>
+</tr>
+<tr id="Haralick1979" class="entry">
+	<td>Haralick, R.M.</td>
+	<td>Statistical and structural approaches to texture <p class="infolinks">[<a href="javascript:toggleInfo('Haralick1979','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Haralick1979','bibtex')">BibTeX</a>]</p></td>
+	<td>1979</td>
+	<td>Proceedings of the IEEE<br/>Vol. 67(5), pp. 786-804&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/PROC.1979.11328">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Haralick1979" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: In this survey we review the image processing literature on the various approaches and models investigators have used for texture. These include statistical approaches of autocorrelation function, optical transforms, digital transforms, textural edgeness, structural element, gray tone cooccurrence, run lengths, and autoregressive models. We discuss and generalize some structural approaches to texture based on more complex primitives than gray tone. We conclude with some structural-statistical generalizations which apply the statistical techniques to the structural primitives.</td>
+</tr>
+<tr id="bib_Haralick1979" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Haralick1979,
+  author = {Haralick, Robert M.},
+  title = {Statistical and structural approaches to texture},
+  journal = {Proceedings of the IEEE},
+  publisher = {IEEE},
+  year = {1979},
+  volume = {67},
+  number = {5},
+  pages = {786--804},
+  doi = {http://doi.org/10.1109/PROC.1979.11328}
+}
+</pre></td>
+</tr>
+<tr id="Jain2000" class="entry">
+	<td>Jain, A.K., Duin, R.P.W. and Mao, J.</td>
+	<td>Statistical pattern recognition: A review <p class="infolinks">[<a href="javascript:toggleInfo('Jain2000','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Jain2000','bibtex')">BibTeX</a>]</p></td>
+	<td>2000</td>
+	<td>IEEE Transactions on Pattern Analysis and Machine Intelligence<br/>Vol. 22(1), pp. 4-37&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1109/34.824819">DOI</a> &nbsp;</td>
+</tr>
+<tr id="abs_Jain2000" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: The primary goal of pattern recognition is supervised or unsupervised classification. Among the various frameworks in which pattern recognition has been traditionally formulated, the statistical approach has been most intensively studied and used in practice. More recently, neural network techniques and methods imported from statistical learning theory have been receiving increasing attention. The design of a recognition system requires careful attention to the following issues: definition of pattern classes, sensing environment, pattern representation, feature extraction and selection, cluster analysis, classifier design and learning, selection of training and test samples, and performance evaluation. In spite of almost 50 years of research and development in this field, the general problem of recognizing complex patterns with arbitrary orientation, location, and scale remains unsolved. New and emerging applications, such as data mining, web searching, retrieval of multimedia data, face recognition, and cursive handwriting recognition, require robust and efficient pattern recognition techniques. The objective of this review paper is to summarize and compare some of the well-known methods used in various stages of a pattern recognition system and identify research topics and applications which are at the forefront of this exciting and challenging field.</td>
+</tr>
+<tr id="bib_Jain2000" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Jain2000,
+  author = {Jain, Anil K. and Duin, Robert P W and Mao, Jianchang},
+  title = {Statistical pattern recognition: A review},
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  year = {2000},
+  volume = {22},
+  number = {1},
+  pages = {4--37},
+  doi = {http://doi.org/10.1109/34.824819}
+}
+</pre></td>
+</tr>
+<tr id="RMHaralickIDinstein1973" class="entry">
+	<td>R M Haralick, I Dinstein, K.S.</td>
+	<td>Textural features for image classification <p class="infolinks">[<a href="javascript:toggleInfo('RMHaralickIDinstein1973','bibtex')">BibTeX</a>]</p></td>
+	<td>1973</td>
+	<td><br/>Vol. 3(6), pp. 610-621&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_RMHaralickIDinstein1973" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{RMHaralickIDinstein1973,
+  author = {R M Haralick, I Dinstein, K Shanmugam},
+  title = {Textural features for image classification},
+  publisher = {Ieee},
+  year = {1973},
+  volume = {3},
+  number = {6},
+  pages = {610--621}
+}
+</pre></td>
+</tr>
+<tr id="Freeman1991" class="entry">
+	<td>Freeman, W.T. and Adelson, E.H.</td>
+	<td>The Design and Use of Steerable Filters Copyright 1 Introduction <p class="infolinks">[<a href="javascript:toggleInfo('Freeman1991','bibtex')">BibTeX</a>]</p></td>
+	<td>1991</td>
+	<td>Technology<br/>Vol. 13(9), pp. 891-906&nbsp;</td>
+	<td>article</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Freeman1991" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Freeman1991,
+  author = {Freeman, William T and Adelson, Edward H},
+  title = {The Design and Use of Steerable Filters Copyright 1 Introduction},
+  journal = {Technology},
+  year = {1991},
+  volume = {13},
+  number = {9},
+  pages = {891--906}
+}
+</pre></td>
+</tr>
+<tr id="Masko2015" class="entry">
+	<td>Masko, D. and Hensman, P.</td>
+	<td>The impact of imbalanced training data for convolutional neural networks <p class="infolinks">[<a href="javascript:toggleInfo('Masko2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>&nbsp;</td>
+	<td>misc</td>
+	<td>&nbsp;</td>
+</tr>
+<tr id="bib_Masko2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@misc{Masko2015,
+  author = {Masko, David and Hensman, Paulina},
+  title = {The impact of imbalanced training data for convolutional neural networks},
+  year = {2015}
+}
+</pre></td>
+</tr>
+<tr id="Gortler1996" class="entry">
+	<td>Gortler, S.J., Grzeszczuk, R., Szeliski, R. and Cohen, M.F.</td>
+	<td>The lumigraph <p class="infolinks">[<a href="javascript:toggleInfo('Gortler1996','bibtex')">BibTeX</a>]</p></td>
+	<td>1996</td>
+	<td>the 23rd annual conference on Computer graphics and interactive techniques, pp. 43-54&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1145/237170.237200">DOI</a> <a href="http://portal.acm.org/citation.cfm?doid=237170.237200">URL</a>&nbsp;</td>
+</tr>
+<tr id="bib_Gortler1996" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Gortler1996,
+  author = {Gortler, Steven J. and Grzeszczuk, Radek and Szeliski, Richard and Cohen, Michael F.},
+  title = {The lumigraph},
+  booktitle = {the 23rd annual conference on Computer graphics and interactive techniques},
+  year = {1996},
+  pages = {43--54},
+  url = {http://portal.acm.org/citation.cfm?doid=237170.237200},
+  doi = {http://doi.org/10.1145/237170.237200}
+}
+</pre></td>
+</tr>
+<tr id="Kenny1997" class="entry">
+	<td>Kenny, O.P., Nelson, D.J. and Meade, F.G.G.</td>
+	<td>Time-frequency methods for enhancing speech <p class="infolinks">[<a href="javascript:toggleInfo('Kenny1997','bibtex')">BibTeX</a>]</p></td>
+	<td>1997</td>
+	<td><br/>Vol. 3162Optical Science, Engineering and Instrumentation9́7 , pp. 48-57&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1117/12.284192">DOI</a> &nbsp;</td>
+</tr>
+<tr id="bib_Kenny1997" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Kenny1997,
+  author = {Kenny, Owen P and Nelson, Douglas J and Meade, Fort George G},
+  title = {Time-frequency methods for enhancing speech},
+  booktitle = {Optical Science, Engineering and Instrumentation9́7 },
+  year = {1997},
+  volume = {3162},
+  pages = {48--57},
+  doi = {http://doi.org/10.1117/12.284192}
+}
+</pre></td>
+</tr>
+<tr id="Karen2015" class="entry">
+	<td>Karen, S. and Andrew, Z.</td>
+	<td>Very Deep Convolutional Networks for Large-Scale Image Recognition <p class="infolinks">[<a href="javascript:toggleInfo('Karen2015','bibtex')">BibTeX</a>]</p></td>
+	<td>2015</td>
+	<td>, pp. 1-14&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1016/j.infsof.2008.09.005">DOI</a> &nbsp;</td>
+</tr>
+<tr id="bib_Karen2015" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Karen2015,
+  author = {Karen, Simonyan and Andrew, Zisserman},
+  title = {Very Deep Convolutional Networks for Large-Scale Image Recognition},
+  year = {2015},
+  pages = {1--14},
+  doi = {http://doi.org/10.1016/j.infsof.2008.09.005}
+}
+</pre></td>
+</tr>
+<tr id="Sivic2003" class="entry">
+	<td>Sivic, J. and Zisserman, A.</td>
+	<td>Video Google: a text retrieval approach to object matching in videos <p class="infolinks">[<a href="javascript:toggleInfo('Sivic2003','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Sivic2003','bibtex')">BibTeX</a>]</p></td>
+	<td>2003</td>
+	<td><br/>Vol. 2(Iccv)Proceedings of the International Conference on Computer Vision, pp. 1470-1477&nbsp;</td>
+	<td>inproceedings</td>
+	<td><a href="http://doi.org/10.1109/ICCV.2003.1238663">DOI</a> <a href="http://ieeexplore.ieee.org/xpl/login.jsp?tp={\&}arnumber=1238663">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Sivic2003" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: We describe an approach to object and scene retrieval which searches for and localizes all the occurrences of a user outlined object in a video. The object is represented by a set of viewpoint invariant region descriptors so that recognition can proceed successfully despite changes in viewpoint, illumination and partial occlusion. The temporal continuity of the video within a shot is used to track the regions in order to reject unstable regions and reduce the effects of noise in the descriptors. The analogy with text retrieval is in the implementation where matches on descriptors are pre-computed (using vector quantization), and inverted file systems and document rankings are used. The result is that retrieved is immediate, returning a ranked list of key frames/shots in the manner of Google. The method is illustrated for matching in two full length feature films.</td>
+</tr>
+<tr id="bib_Sivic2003" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@inproceedings{Sivic2003,
+  author = {Sivic, Josef and Zisserman, Andrew},
+  title = {Video Google: a text retrieval approach to object matching in videos},
+  booktitle = {Proceedings of the International Conference on Computer Vision},
+  year = {2003},
+  volume = {2},
+  number = {Iccv},
+  pages = {1470--1477},
+  url = {http://ieeexplore.ieee.org/xpl/login.jsp?tp=&amp;arnumber=1238663},
+  doi = {http://doi.org/10.1109/ICCV.2003.1238663}
+}
+</pre></td>
+</tr>
+<tr id="Pinto2008" class="entry">
+	<td>Pinto, N., Cox, D.D. and DiCarlo, J.J.</td>
+	<td>Why is real-world visual object recognition hard? <p class="infolinks">[<a href="javascript:toggleInfo('Pinto2008','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Pinto2008','bibtex')">BibTeX</a>]</p></td>
+	<td>2008</td>
+	<td>PLoS Computational Biology<br/>Vol. 4(1), pp. 0151-0156&nbsp;</td>
+	<td>article</td>
+	<td><a href="http://doi.org/10.1371/journal.pcbi.0040027">DOI</a> <a href="http://dx.doi.org/10.1371{\%}2Fjournal.pcbi.0040027">URL</a>&nbsp;</td>
+</tr>
+<tr id="abs_Pinto2008" class="abstract noshow">
+	<td colspan="6"><b>Abstract</b>: Progress in understanding the brain mechanisms underlying vision requires the construction of computational models that not only emulate the brain's anatomy and physiology, but ultimately match its performance on visual tasks. In recent years, "natural" images have become popular in the study of vision and have been used to show apparently impressive progress in building such models. Here, we challenge the use of uncontrolled "natural" images in guiding that progress. In particular, we show that a simple V1-like model--a neuroscientist's "null" model, which should perform poorly at real-world visual object recognition tasks--outperforms state-of-the-art object recognition systems (biologically inspired and otherwise) on a standard, ostensibly natural image recognition test. As a counterpoint, we designed a "simpler" recognition test to better span the real-world variation in object pose, position, and scale, and we show that this test correctly exposes the inadequacy of the V1-like model. Taken together, these results demonstrate that tests based on uncontrolled natural images can be seriously misleading, potentially guiding progress in the wrong direction. Instead, we reexamine what it means for images to be natural and argue for a renewed focus on the core problem of object recognition--real-world image variation.</td>
+</tr>
+<tr id="bib_Pinto2008" class="bibtex noshow">
+<td colspan="6"><b>BibTeX</b>:
+<pre>
+@article{Pinto2008,
+  author = {Pinto, Nicolas and Cox, David D. and DiCarlo, James J.},
+  title = {Why is real-world visual object recognition hard?},
+  journal = {PLoS Computational Biology},
+  publisher = {Public Library of Science},
+  year = {2008},
+  volume = {4},
+  number = {1},
+  pages = {0151--0156},
+  url = {http://dx.doi.org/10.1371&percnt;2Fjournal.pcbi.0040027},
+  doi = {http://doi.org/10.1371/journal.pcbi.0040027}
+}
+</pre></td>
+</tr>
+</tbody>
+</table>
+<footer>
+ <small>Created by <a href="http://jabref.sourceforge.net">JabRef</a> on 18/05/2017.</small>
+</footer>
+<!-- file generated by JabRef -->
+</body>
+</html>
