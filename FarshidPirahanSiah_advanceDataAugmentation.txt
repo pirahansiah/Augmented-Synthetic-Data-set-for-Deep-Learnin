@@ -1,0 +1,252 @@
+#include <fstream>
+#include <iostream>
+#include <cstdlib>
+#include <iostream>
+#include <ctime>
+using namespace std;
+#include <opencv2/opencv.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include "opencv2/core.hpp"
+using namespace cv;
+Mat rotate(Mat src, double angle)
+{
+	Mat dst;
+	Point2f pt(src.cols / 2., src.rows / 2.);
+	Mat r = getRotationMatrix2D(pt, angle, 1.0);
+	warpAffine(src, dst, r, Size(src.cols, src.rows));
+	return dst;
+}
+Mat contrast1brightness(Mat src, double alpha, int beta)
+{
+	Mat dst = Mat::zeros(src.size(), src.type());
+	for (int y = 0; y < src.rows; y++)
+	{
+		for (int x = 0; x < src.cols; x++)
+		{
+			for (int c = 0; c < 3; c++)
+			{
+				dst.at<Vec3b>(y, x)[c] =
+					saturate_cast<uchar>(alpha*(src.at<Vec3b>(y, x)[c]) + beta);
+			}
+		}
+	}
+	return dst;
+}
+Mat scale(Mat src) 
+{
+	Mat dst = Mat::zeros(src.size(), src.type());
+	float height = src.rows;
+	float width= src.cols;
+	height = ((rand() % 70) * -1) + height;
+	width = ((rand() % 70) * -1) + width;
+	Size s(width, height);
+	cv::resize(src, dst, s);
+	return dst;
+}
+Mat rotateFull(Mat src, double angleNumber)
+{
+	char* source_window = "Source image";
+	char* warp_window = "Warp";
+	char* warp_rotate_window = "Warp + Rotate";
+	Point2f srcTri[3];
+	Point2f dstTri[3];
+
+	Mat rot_mat(2, 3, CV_32FC1);
+	Mat warp_mat(2, 3, CV_32FC1);
+	Mat warp_dst, warp_rotate_dst;
+
+	/// Load the image
+	//src = imread(argv[1], 1);
+
+	/// Set the dst image the same type and size as src
+	warp_dst = Mat::zeros(src.rows, src.cols, src.type());
+
+	/// Set your 3 points to calculate the  Affine Transform
+	srcTri[0] = Point2f(0, 0);
+	srcTri[1] = Point2f(src.cols - 1, 0);
+	srcTri[2] = Point2f(0, src.rows - 1);
+
+	dstTri[0] = Point2f(src.cols*0.0, src.rows*0.33);
+	dstTri[1] = Point2f(src.cols*0.85, src.rows*0.25);
+	dstTri[2] = Point2f(src.cols*0.15, src.rows*0.7);
+
+	/*dstTri[0] = Point2f(src.cols*0.99, src.rows*0.99);
+	dstTri[1] = Point2f(src.cols*0.99, src.rows*0.99);
+	dstTri[2] = Point2f(src.cols*0.99, src.rows*0.99);*/
+
+	/// Get the Affine Transform
+	warp_mat = getAffineTransform (srcTri, dstTri);
+
+	/// Apply the Affine Transform just found to the src image
+	warpAffine(src, warp_dst, warp_mat, warp_dst.size());
+
+	/** Rotating the image after Warp */
+
+	/// Compute a rotation matrix with respect to the center of the image
+	Point center = Point(warp_dst.cols / 2, warp_dst.rows / 2);
+	double angle = angleNumber;// -50.0;
+	double scale = 1;// 0.6;
+
+	/// Get the rotation matrix with the specifications above
+	rot_mat = getRotationMatrix2D(center, angle, scale);
+
+	/// Rotate the warped image
+	warpAffine(warp_dst, warp_rotate_dst, rot_mat, warp_dst.size());
+	return warp_rotate_dst;
+
+}
+Mat rotateFull2(Mat src, double angleNumber)
+{
+	cv::Point2f center(src.cols / 2.0, src.rows / 2.0);
+	cv::Mat rot = cv::getRotationMatrix2D(center, angleNumber, 1.0);
+	// determine bounding rectangle
+	cv::Rect bbox = cv::RotatedRect(center, src.size(), angleNumber).boundingRect();
+	// adjust transformation matrix
+	rot.at<double>(0, 2) += bbox.width / 2.0 - center.x;
+	rot.at<double>(1, 2) += bbox.height / 2.0 - center.y;
+
+	cv::Mat dst;
+	cv::warpAffine(src, dst, rot, bbox.size());
+	return dst;
+
+}
+void modify(String filePathName,int fileNumberRead,String folderName,int numberOfFloder)
+{
+	stringstream ss;
+	Mat src = imread(filePathName);
+	Mat new_image = Mat::zeros(src.size(), src.type());
+	double alpha = 1.0; /**< Simple contrast control 0.005 3*/
+	int beta = 0;  /**< Simple brightness control 0.27 100*/
+	int sigmaCS = 15;// sigmaColor; sigmaSpace
+	int blurK = 1, boxFilterKernel = 20, pyrDownSize = 2;
+	Mat dst9, dst10, dst12, dst13, dst14, dst15, dst16, dst17, dst18, dst19, dst21, dst31, dst41, dst11;
+	for (int i = 0; i < 36; i++)
+	{		
+			alpha += 0.05;
+			beta+=2.5;
+			sigmaCS++;
+			if (blurK > 15)
+			{
+				blurK = 3;
+				boxFilterKernel = 15;
+			}
+			blurK++;
+			boxFilterKernel--;		
+		dst9 = scale(src);
+		//dst10 = rotate(dst9, i*36);
+		dst10 = rotateFull2(dst9, i * 36);
+		dst11 = contrast1brightness(dst10, alpha, beta);
+		bilateralFilter(dst11, dst12, 10, sigmaCS, sigmaCS);
+		if (i % 2 == 0)
+		{
+			blur(dst12, dst13, Size(blurK, blurK), Point(-1, -1));
+		}
+		else
+		{
+			cv::addWeighted(dst12, 1.5, dst12, -0.5, 0, dst13);
+		}
+		if (i % 2 == 0)
+		{
+			dilate(dst13, dst14, blurK);
+		}
+		else
+		{
+			erode(dst13, dst14, blurK);
+		}
+		ss << folderName << "/" << fileNumberRead <<"-"<< numberOfFloder<< "-"<<i << ".jpg";
+		string fullPath = ss.str();
+		ss.str("");
+		imwrite(fullPath, dst14);
+	}
+}
+void modify1(String filePathName, int fileNumberRead, String folderName, int numberOfFloder)
+{
+	stringstream ss;
+	Mat src = imread(filePathName);
+	Mat new_image = Mat::zeros(src.size(), src.type());
+	double alpha = 1.0; /**< Simple contrast control 0.005*/
+	int beta = 0;  /**< Simple brightness control 0.27*/
+	int sigmaCS = 15;// sigmaColor; sigmaSpace
+	int blurK = 1, boxFilterKernel = 20, pyrDownSize = 2;
+	Mat dst9, dst10, dst12, dst13, dst14, dst15, dst16, dst17, dst18, dst19, dst21, dst31, dst41, dst11;
+	for (int i = 0; i < 360; i++)
+	{
+		if (i % 4 == 0)
+		{
+			alpha += 0.01;// 0.005;
+			if (beta<80) beta++;// = 0.27;
+			sigmaCS++;
+			if (blurK > 15)
+			{
+				blurK = 3;
+				boxFilterKernel = 15;
+			}
+			blurK++;
+			boxFilterKernel--;
+			pyrDownSize++;
+			if (pyrDownSize > 3)pyrDownSize = 2;
+		}
+		dst9 = scale(src);
+		dst10 = rotate(dst9, i);
+		dst11 = contrast1brightness(dst10, alpha, beta);
+		bilateralFilter(dst11, dst12, 10, sigmaCS, sigmaCS);
+		if (i % 2 == 0)
+		{
+			blur(dst12, dst13, Size(blurK, blurK), Point(-1, -1));
+		}
+		else
+		{
+			cv::addWeighted(dst12, 1.5, dst12, -0.5, 0, dst13);
+		}
+		if (i % 2 == 0)
+		{
+			dilate(dst13, dst14, blurK);
+		}
+		else
+		{
+			erode(dst13, dst14, blurK);
+		}
+		ss << folderName << "/" << fileNumberRead << "-" << numberOfFloder << "-" << i << ".jpg";
+		string fullPath = ss.str();
+		ss.str("");
+		imwrite(fullPath, dst14);
+	}
+}
+std::string SplitFilename(const std::string& str) {
+	std::cout << "Splitting: " << str << '\n';
+	unsigned found = str.find_last_of("/\\");
+	return str.substr(0, found);
+}
+int main(int argc, char **argv)
+{	
+	std::string filePathRead;
+	std::string folderNameToCreate1 = "";
+	std::string folderNameToCreate2 = "";
+	std::ifstream input(argv[1]);
+	//std::ifstream input("farshid.txt");
+	std::string line;
+	vector<cv::String> vector1;
+	int numberOfFloder = 0;
+	while (std::getline(input, line))
+	{
+		numberOfFloder++;
+		std::istringstream iss(line);
+		iss >> filePathRead;
+		filePathRead += "*.jpg";
+		glob(filePathRead, vector1, true);
+		size_t count;
+		if (!vector1.empty())
+		{
+			count = vector1.size();
+			for (size_t i = 0; i < count; i++)
+			{
+				folderNameToCreate2=SplitFilename(vector1[i]) ;
+				std::cout << vector1[i] << endl;
+				modify(vector1[i], i, folderNameToCreate2, numberOfFloder);
+			}/// endfor for read all files in folder
+		}//endif check file in folder more than 0		
+	}// endwhile for read file path (folder) from text file
+	//std::cin >> filePathRead;
+	return 0;
+}
